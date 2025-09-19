@@ -18,6 +18,8 @@ Notes:
 """
 import os
 import hashlib
+from typing import Callable
+
 import deps
 deps.ensure_all()
 from colorama import Fore, Style
@@ -81,6 +83,42 @@ def read_choice() -> int:
         print(Fore.RED + "Invalid choice. Please enter a number from the menu." + Style.RESET_ALL)
 
 
+# -----------------------
+# Certificate preparation
+# -----------------------
+
+def _run_cert_setup(task: Callable[[], None], failure_message: str) -> bool:
+    try:
+        task()
+        return True
+    except SystemExit:
+        print(Fore.RED + failure_message + Style.RESET_ALL)
+        return False
+    except Exception as exc:  # pragma: no cover - defensive guardrail
+        print(
+            Fore.RED
+            + f"{failure_message} ({exc})."
+            + Style.RESET_ALL
+        )
+        return False
+
+
+def _prepare_certificates(mode: str, mitm: bool) -> bool:
+    if mode == "tls":
+        if not _run_cert_setup(
+            ensure_server_certs,
+            "[error] Failed to prepare TLS server certificates. Aborting demo.",
+        ):
+            return False
+    if mitm:
+        if not _run_cert_setup(
+            ensure_mitm_certs,
+            "[error] Failed to prepare MITM certificates. Aborting demo.",
+        ):
+            return False
+    return True
+
+
 # -------
 # Runner
 # -------
@@ -98,18 +136,15 @@ def run_selection(sel: int) -> None:
     else:
         os.environ.pop("LAUNCHER_EXTRAS", None)
 
-    if mode == "tls" and not mitm:
-        # Normal TLS demos need server certs
-        ensure_server_certs()
-        if keylog:
-            # Ensure keylog file exists
-            keylog_path = os.path.abspath(keylog)
-            open(keylog_path, "a", encoding="utf-8").close()
-            print(Fore.YELLOW + f"TLS key logging ENABLED: {keylog_path}")
-            print(Fore.YELLOW + "Wireshark → Preferences → Protocols → TLS → Pre-Master-Secret log filename\n")
-    elif mitm:
-        # MITM demos need a separate self‑signed cert
-        ensure_mitm_certs()
+    if not _prepare_certificates(mode, mitm):
+        return
+
+    if mode == "tls" and not mitm and keylog:
+        # Ensure keylog file exists
+        keylog_path = os.path.abspath(keylog)
+        open(keylog_path, "a", encoding="utf-8").close()
+        print(Fore.YELLOW + f"TLS key logging ENABLED: {keylog_path}")
+        print(Fore.YELLOW + "Wireshark → Preferences → Protocols → TLS → Pre-Master-Secret log filename\n")
 
     # Dramatic flair ✨
     print()
