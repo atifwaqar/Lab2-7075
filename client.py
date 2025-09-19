@@ -93,16 +93,6 @@ def main():
     print(f"[Client] Connecting to {HOST}:{PORT} ...")
     sock = socket.create_connection((HOST, PORT))
     sock.settimeout(0.2)  # allow quick exit on Ctrl+C/Q
-
-    if args.pin:
-        der_cert = sock.getpeercert(binary_form=True)  # raw DER bytes
-        actual_fp = hashlib.sha256(der_cert).hexdigest()
-        if actual_fp != args.pin.lower():
-            print("[!] Certificate pinning failed!")
-            sock.close()
-            return
-        else:
-            print("[*] Certificate pinning successful")
     if use_tls:
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         # For the lab's initial steps, we intentionally disable validation; switch later.
@@ -116,16 +106,27 @@ def main():
                 pass
 
         # --- create the TLS socket ---
-        ssock = context.wrap_socket(sock, server_hostname="localhost")
+        try:
+            ssock = context.wrap_socket(sock, server_hostname="localhost")
+        except ssl.SSLError as exc:
+            sock.close()
+            print("[Client] TLS handshake failed.")
+            if args.pin:
+                print("[Client] Certificate pinning prevented the connection.")
+            print(f"[Client] Details: {exc}")
+            return
+
         ssock.settimeout(0.2)
 
-        fp = sha256_fingerprint(ssock.getpeercert(binary_form=True))
+        der_cert = ssock.getpeercert(binary_form=True)
+        fp = sha256_fingerprint(der_cert)
         print(f"[*] Server certificate fingerprint: {fp}")
 
         if args.pin:
-            if fp != args.pin.lower():
+            expected_fp = args.pin.lower()
+            if fp != expected_fp:
                 print(f"[!] Certificate pinning FAILED!\n"
-                      f"    Expected: {args.pin.lower()}\n"
+                      f"    Expected: {expected_fp}\n"
                       f"    Got:      {fp}")
                 ssock.close()
                 return
