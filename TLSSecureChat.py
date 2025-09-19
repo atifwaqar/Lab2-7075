@@ -17,6 +17,7 @@ Notes:
   Adjust ``INSECURE_CLIENT_ARGS`` below if your client uses a different flag.
 """
 import os
+import hashlib
 import deps
 deps.ensure_all()
 from colorama import Fore, Style
@@ -120,7 +121,24 @@ def run_selection(sel: int) -> None:
         # MITM flow spins up real server, the proxy, then the client connecting to the proxy
         # For pinning we rely on client to enforce it via an arg understood by client.py
         if pin:
-            start_mitm_chat(pin="4b9fa70b5483ed545b5821982a59b1888d4fb36a918a37c55c94802644e1c51f")
+            ensure_server_certs()
+            server_cert_path = os.path.abspath("server.crt")
+            if not os.path.exists(server_cert_path):
+                raise FileNotFoundError("server.crt is required for the pinning demo but was not found")
+
+            with open(server_cert_path, "rb") as cert_file:
+                fingerprint = hashlib.sha256(cert_file.read()).hexdigest()
+
+            print(
+                Fore.YELLOW
+                + "[Pinning] server.crt SHA-256 fingerprint: "
+                + Fore.LIGHTGREEN_EX
+                + fingerprint
+                + Style.RESET_ALL
+            )
+            print(Fore.YELLOW + "[Pinning] Pass this value to --pin if launching manually." + Style.RESET_ALL)
+
+            start_mitm_chat(pin=fingerprint)
         else:
             start_mitm_chat()
     else:
