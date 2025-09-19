@@ -161,22 +161,42 @@ def create_chat_app(title_text: str, send_callback):
     # Thread-safe appenders for background recv threads:
     _lock = threading.Lock()
 
+    def _run_on_ui_thread(fn):
+        """Ensure prompt_toolkit buffer mutations happen on the UI thread."""
+
+        if app.is_running:
+            try:
+                app.call_from_executor(fn)
+                return
+            except Exception:
+                pass
+        # Fallback for early log messages before the app starts running or if
+        # call_from_executor is unavailable.  In those cases we're already on
+        # the main thread and can safely execute immediately.
+        fn()
+
     def _append_peer(m: str):
-        with _lock:
-            _append_line(log, make_bubble(m, side="left"))
-            _append_line(log, "")
-        try:
-            app.invalidate()
-        except Exception:
-            pass
+        def _do_append():
+            with _lock:
+                _append_line(log, make_bubble(m, side="left"))
+                _append_line(log, "")
+            try:
+                app.invalidate()
+            except Exception:
+                pass
+
+        _run_on_ui_thread(_do_append)
 
     def _append_sys(m: str):
-        with _lock:
-            _append_line(log, m)
-        try:
-            app.invalidate()
-        except Exception:
-            pass
+        def _do_append():
+            with _lock:
+                _append_line(log, m)
+            try:
+                app.invalidate()
+            except Exception:
+                pass
+
+        _run_on_ui_thread(_do_append)
 
     app.append_peer = _append_peer     # type: ignore[attr-defined]
     app.append_system = _append_sys    # type: ignore[attr-defined]
