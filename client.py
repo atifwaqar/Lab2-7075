@@ -80,6 +80,9 @@ def main():
     parser.add_argument("--mode", choices=["tls", "plain"], default="tls")
     parser.add_argument("--keylog", help="Path to write TLS key log (for Wireshark decryption)", default=None)
     parser.add_argument("--port", type=int, default=config.PORT_SERVER, help="Port to connect/bind to")
+    parser.add_argument("--cafile", help="Path to a CA bundle or server certificate for verification", default=None)
+    parser.add_argument("--insecure", action="store_true",
+                        help="Disable certificate verification (lab/demo mode only)")
     parser.add_argument("--pin", help="SHA-256 fingerprint of server cert (lowercase hex, no colons)")
     parser.add_argument("--snap", action="store_true", help="Snap console to right half on start")  # optional flag
     args = parser.parse_args()
@@ -95,9 +98,31 @@ def main():
     sock.settimeout(0.2)  # allow quick exit on Ctrl+C/Q
     if use_tls:
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
-        # For the lab's initial steps, we intentionally disable validation; switch later.
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
+
+        if args.insecure:
+            print("[Client] ⚠️ Certificate verification disabled (--insecure).")
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+        else:
+            context.check_hostname = True
+            context.verify_mode = ssl.CERT_REQUIRED
+
+            loaded_bundle = False
+            if args.cafile:
+                context.load_verify_locations(cafile=args.cafile)
+                print(f"[Client] Loaded CA bundle: {args.cafile}")
+                loaded_bundle = True
+            else:
+                default_cert = os.path.join(os.path.dirname(__file__), "server.crt")
+                if os.path.exists(default_cert):
+                    context.load_verify_locations(cafile=default_cert)
+                    print(f"[Client] Loaded bundled server certificate: {default_cert}")
+                    loaded_bundle = True
+
+            if not loaded_bundle:
+                print("[Client] Using system trust store for verification.")
+                print("[Client] If you generated server.crt, it will be trusted automatically.")
+                print("[Client] Pass --cafile or --insecure if you are using custom lab certificates.")
 
         if args.keylog:
             try:
@@ -108,6 +133,12 @@ def main():
         # --- create the TLS socket ---
         try:
             ssock = context.wrap_socket(sock, server_hostname="localhost")
+        except ssl.SSLCertVerificationError as exc:
+            sock.close()
+            print("[Client] TLS handshake failed: certificate verification error.")
+            print(f"[Client] Details: {exc}")
+            print("[Client] Generate server.crt or pass --cafile/--insecure if this is expected in the lab.")
+            return
         except ssl.SSLError as exc:
             sock.close()
             print("[Client] TLS handshake failed.")

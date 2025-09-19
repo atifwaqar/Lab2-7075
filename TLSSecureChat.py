@@ -12,8 +12,9 @@ Demos:
 
 Notes:
 - Uses existing helpers in deps, ui, certs, launcher, matrixfx, config.
-- For (5) we pass --pin to the client via LAUNCHER_EXTRAS so pinning kicks in.
-  If your client uses another flag or env var, tweak `PIN_CLIENT_ARGS` below.
+- TLS demos now validate certificates. The MITM demos automatically launch the
+  client with ``--insecure`` so you can still explore the vulnerable workflow.
+  Adjust ``INSECURE_CLIENT_ARGS`` below if your client uses a different flag.
 """
 import os
 import deps
@@ -34,14 +35,16 @@ import config
 # ---------
 # Constants
 # ---------
-PIN_CLIENT_ARGS = ["--pin"]  # adjust if your client expects a different flag
+INSECURE_CLIENT_ARGS = ("--insecure",)
 
 MENU_ITEMS = [
-    ("Plain chat (no TLS)",               {"mode": "plain", "keylog": None,  "mitm": False, "pin": False}),
-    ("TLS chat",                           {"mode": "tls",   "keylog": None,  "mitm": False, "pin": False}),
-    ("TLS chat + Wireshark key log",      {"mode": "tls",   "keylog": config.KEYLOG_FILENAME, "mitm": False, "pin": False}),
-    ("MITM with self‑signed cert",        {"mode": "tls",   "keylog": None,  "mitm": True,  "pin": False}),
-    ("MITM blocked by certificate pinning", {"mode": "tls", "keylog": None,  "mitm": True,  "pin": True}),
+    ("Plain chat (no TLS)",               {"mode": "plain", "keylog": None,  "mitm": False, "pin": False, "extras": ()}),
+    ("TLS chat (certificate validation)", {"mode": "tls",   "keylog": None,  "mitm": False, "pin": False, "extras": ()}),
+    ("TLS chat + Wireshark key log",      {"mode": "tls",   "keylog": config.KEYLOG_FILENAME, "mitm": False, "pin": False, "extras": ()}),
+    ("MITM with self‑signed cert (insecure client)",
+     {"mode": "tls",   "keylog": None,  "mitm": True,  "pin": False, "extras": INSECURE_CLIENT_ARGS}),
+    ("MITM blocked by certificate pinning (insecure client)",
+     {"mode": "tls", "keylog": None,  "mitm": True,  "pin": True,  "extras": INSECURE_CLIENT_ARGS}),
 ]
 
 # --------------
@@ -50,6 +53,10 @@ MENU_ITEMS = [
 def print_menu() -> None:
     show_banner()
     warn_missing_tools()
+    print(Fore.YELLOW +
+          "Secure by default: TLS demos verify certificates. Use --insecure to "
+          "disable checks when exploring lab scenarios." +
+          Style.RESET_ALL)
     print(Fore.CYAN + "Choose a demo:" + Style.RESET_ALL)
     for idx, (label, _) in enumerate(MENU_ITEMS, start=1):
         print(Fore.WHITE + f"  {idx}. " + Fore.LIGHTGREEN_EX + label + Style.RESET_ALL)
@@ -82,8 +89,14 @@ def run_selection(sel: int) -> None:
     keylog = opts["keylog"]        # None or path
     mitm   = opts["mitm"]          # bool
     pin    = opts["pin"]           # bool
+    extras = tuple(opts.get("extras", ()))
 
     # Pre-work
+    if extras:
+        os.environ["LAUNCHER_EXTRAS"] = " ".join(extras)
+    else:
+        os.environ.pop("LAUNCHER_EXTRAS", None)
+
     if mode == "tls" and not mitm:
         # Normal TLS demos need server certs
         ensure_server_certs()
@@ -107,11 +120,8 @@ def run_selection(sel: int) -> None:
         # MITM flow spins up real server, the proxy, then the client connecting to the proxy
         # For pinning we rely on client to enforce it via an arg understood by client.py
         if pin:
-            # Let the launcher know to pass an extra flag through
-            os.environ["LAUNCHER_EXTRAS"] = " ".join(PIN_CLIENT_ARGS)
             start_mitm_chat(pin="4b9fa70b5483ed545b5821982a59b1888d4fb36a918a37c55c94802644e1c51f")
         else:
-            os.environ.pop("LAUNCHER_EXTRAS", None)
             start_mitm_chat()
     else:
         # Direct server+client chat (plain or TLS)
