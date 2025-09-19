@@ -13,6 +13,7 @@ Exports:
 import threading
 import textwrap
 import shutil
+from collections import deque
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -160,23 +161,73 @@ def create_chat_app(title_text: str, send_callback):
 
     # Thread-safe appenders for background recv threads:
     _lock = threading.Lock()
+    _pending = deque()
+    _pending_lock = threading.Lock()
+    _drain_scheduled = False
+
+    def _drain_pending():
+        nonlocal _drain_scheduled
+        while True:
+            with _pending_lock:
+                if not _pending:
+                    _drain_scheduled = False
+                    return
+                fn = _pending.popleft()
+            try:
+                fn()
+            except Exception:
+                pass
+
+    def _schedule_drain():
+        nonlocal _drain_scheduled
+        loop = getattr(app, "_loop", None)
+        if loop and loop.is_running():
+            with _pending_lock:
+                if _drain_scheduled:
+                    return
+                _drain_scheduled = True
+            try:
+                loop.call_soon_threadsafe(_drain_pending)
+            except RuntimeError:
+                with _pending_lock:
+                    _drain_scheduled = False
+        else:
+            # Event loop not yet available; pending items will be drained in
+            # pre_run_callables once the UI starts.
+            pass
+
+    def _run_on_ui_thread(fn):
+        with _pending_lock:
+            _pending.append(fn)
+        _schedule_drain()
 
     def _append_peer(m: str):
-        with _lock:
-            _append_line(log, make_bubble(m, side="left"))
-            _append_line(log, "")
-        try:
-            app.invalidate()
-        except Exception:
-            pass
+        def _do_append():
+            with _lock:
+                _append_line(log, make_bubble(m, side="left"))
+                _append_line(log, "")
+            try:
+                app.invalidate()
+            except Exception:
+                pass
+
+        _run_on_ui_thread(_do_append)
 
     def _append_sys(m: str):
-        with _lock:
-            _append_line(log, m)
-        try:
-            app.invalidate()
-        except Exception:
-            pass
+        def _do_append():
+            with _lock:
+                _append_line(log, m)
+            try:
+                app.invalidate()
+            except Exception:
+                pass
+
+        _run_on_ui_thread(_do_append)
+
+    def _flush_pending_on_start():
+        _drain_pending()
+
+    app.pre_run_callables.append(_flush_pending_on_start)
 
     app.append_peer = _append_peer     # type: ignore[attr-defined]
     app.append_system = _append_sys    # type: ignore[attr-defined]
