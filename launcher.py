@@ -1,6 +1,7 @@
 # launcher.py
 import os, sys, time, subprocess, socket, shlex
 import config
+from certs import ensure_server_certs
 
 def start_server_console(mode: str, keylog_path: str | None, port: int, new_console: bool = True):
     args = [sys.executable, "server.py", "--mode", mode, "--port", str(port)]
@@ -73,6 +74,10 @@ def start_mitm_chat(pin: str | None = None):
     Demo 4: run MITM without pinning
     Demo 5: run MITM with certificate pinning (pass pin)
     """
+    try:
+        ensure_server_certs()
+    except SystemExit as exc:
+        raise RuntimeError("Failed to prepare TLS server certificates") from exc
     # 1. Start real server
     start_server_console("tls", None, config.PORT_SERVER_REAL)
     wait_for_port(config.HOST, config.PORT_SERVER_REAL)
