@@ -1,5 +1,5 @@
 # launcher.py
-import os, sys, time, subprocess, socket
+import os, sys, time, subprocess, socket, shlex
 import config
 
 def start_server_console(mode: str, keylog_path: str | None, port: int, new_console: bool = True):
@@ -33,11 +33,15 @@ def start_client_console(mode: str,
     if snap:
         args += ["--snap"]
 
+    extras = os.environ.get("LAUNCHER_EXTRAS")
+    if extras:
+        args.extend(shlex.split(extras))
+
     if new_console and os.name == "nt":
         subprocess.Popen(
             args,
             cwd=os.getcwd(),
-            creationflags=subprocess.CREATE_NEW_CONSOLE,   # <<— key change
+            creationflags=subprocess.CREATE_NEW_CONSOLE,   # <<â€” key change
             close_fds=True
         )
     elif new_console:
