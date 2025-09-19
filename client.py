@@ -14,39 +14,72 @@ from window_utils import snap_console
 
 import sys, os, time, traceback
 
+from typing import Iterable
+
 # ---- Demo-5 friendly pause helpers ----
-def _interactive_pause(seconds=5):
-    """Cross-platform 'hold the window' with key-to-close, fallback to sleep."""
+def _interactive_pause(seconds=None, *, show_prompt=True):
+    """Cross-platform pause that defaults to waiting for an explicit key press."""
+    prompt_close = None
+    if show_prompt:
+        prompt_close = (
+            "[Client] Press any key to close this window."
+            if seconds is None
+            else f"[Client] (Press any key to close, or auto-close in {seconds}s)"
+        )
     try:
-        # Windows: non-blocking key detection
+        # Windows: use msvcrt for key detection
         import msvcrt
+
+        if show_prompt and prompt_close:
+            print(prompt_close, flush=True)
+        if seconds is None:
+            msvcrt.getch()
+            return
+
         end = time.time() + seconds
-        print(f"[Client] (Press any key to close, or auto-close in {seconds}s)", flush=True)
         while time.time() < end:
             if msvcrt.kbhit():
                 msvcrt.getch()
                 return
             time.sleep(0.1)
+        return
     except Exception:
         # POSIX: wait for Enter if a TTY, otherwise sleep
         try:
             if sys.stdin and sys.stdin.isatty():
                 import select
-                print(f"[Client] (Press Enter to close, or auto-close in {seconds}s)", flush=True)
+
+                if show_prompt:
+                    print(
+                        "[Client] Press Enter to close this window." if seconds is None
+                        else f"[Client] (Press Enter to close, or auto-close in {seconds}s)",
+                        flush=True,
+                    )
+                if seconds is None:
+                    sys.stdin.readline()
+                    return
+
                 r, _, _ = select.select([sys.stdin], [], [], seconds)
                 if r:
                     sys.stdin.readline()
-                    return
                 return
         except Exception:
             pass
-    # Fallback
-    time.sleep(seconds)
 
-def graceful_exit(code=0, message=None, seconds=5):
-    """Print message, flush, pause, and exit. Use for all planned exits in Demo 5."""
+    # Fallback: final sleep (only used when no TTY is available)
+    time.sleep(0 if seconds is None else seconds)
+
+def graceful_exit(code=0, message=None, seconds=None):
+    """Print message(s), flush, pause, and exit. Use for all planned exits in Demo 5."""
     if message:
-        print(message, file=sys.stderr if code else sys.stdout)
+        target = sys.stderr if code else sys.stdout
+        if isinstance(message, str):
+            print(message, file=target)
+        elif isinstance(message, Iterable):
+            for line in message:
+                print(line, file=target)
+        else:
+            print(str(message), file=target)
     # Ensure text hits the console before we pause
     try:
         sys.stdout.flush()
@@ -57,13 +90,20 @@ def graceful_exit(code=0, message=None, seconds=5):
     # Use os._exit to avoid other atexit handlers shortening our pause
     os._exit(code)
 
-def install_graceful_crash_handler(seconds=5):
+def install_graceful_crash_handler(seconds=None):
     """Catch *any* uncaught exception and hold the window so users can read it."""
     def _hook(exc_type, exc, tb):
         print("\n[Client] ❌ Unexpected error:", file=sys.stderr, flush=True)
         traceback.print_exception(exc_type, exc, tb)
-        print(f"[Client] The window will close in {seconds} seconds…", file=sys.stderr, flush=True)
-        _interactive_pause(seconds)
+        if seconds is None:
+            print("[Client] Press any key to close this window.", file=sys.stderr, flush=True)
+        else:
+            print(
+                f"[Client] The window will close in {seconds} seconds…",
+                file=sys.stderr,
+                flush=True,
+            )
+        _interactive_pause(seconds, show_prompt=False)
         os._exit(1)
     sys.excepthook = _hook
 
@@ -75,7 +115,7 @@ def sha256_fingerprint(cert_bytes: bytes) -> str:
 
 # -------------------- networking --------------------
 def main():
-    install_graceful_crash_handler(seconds=5)
+    install_graceful_crash_handler()
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["tls", "plain"], default="tls")
     parser.add_argument("--keylog", help="Path to write TLS key log (for Wireshark decryption)", default=None)
@@ -94,7 +134,16 @@ def main():
     use_tls = (args.mode == "tls")
 
     print(f"[Client] Connecting to {HOST}:{PORT} ...")
-    sock = socket.create_connection((HOST, PORT))
+    try:
+        sock = socket.create_connection((HOST, PORT))
+    except OSError as exc:
+        graceful_exit(
+            1,
+            [
+                f"[Client] Unable to connect to {HOST}:{PORT}.",
+                f"[Client] Details: {exc}",
+            ],
+        )
     sock.settimeout(0.2)  # allow quick exit on Ctrl+C/Q
     if use_tls:
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
@@ -135,17 +184,21 @@ def main():
             ssock = context.wrap_socket(sock, server_hostname="localhost")
         except ssl.SSLCertVerificationError as exc:
             sock.close()
-            print("[Client] TLS handshake failed: certificate verification error.")
-            print(f"[Client] Details: {exc}")
-            print("[Client] Generate server.crt or pass --cafile/--insecure if this is expected in the lab.")
-            return
+            graceful_exit(
+                1,
+                [
+                    "[Client] TLS handshake failed: certificate verification error.",
+                    f"[Client] Details: {exc}",
+                    "[Client] Generate server.crt or pass --cafile/--insecure if this is expected in the lab.",
+                ],
+            )
         except ssl.SSLError as exc:
             sock.close()
-            print("[Client] TLS handshake failed.")
+            messages = ["[Client] TLS handshake failed."]
             if args.pin:
-                print("[Client] Certificate pinning prevented the connection.")
-            print(f"[Client] Details: {exc}")
-            return
+                messages.append("[Client] Certificate pinning prevented the connection.")
+            messages.append(f"[Client] Details: {exc}")
+            graceful_exit(1, messages)
 
         ssock.settimeout(0.2)
 
@@ -156,11 +209,15 @@ def main():
         if args.pin:
             expected_fp = args.pin.lower()
             if fp != expected_fp:
-                print(f"[!] Certificate pinning FAILED!\n"
-                      f"    Expected: {expected_fp}\n"
-                      f"    Got:      {fp}")
                 ssock.close()
-                return
+                graceful_exit(
+                    1,
+                    [
+                        "[!] Certificate pinning FAILED!",
+                        f"    Expected: {expected_fp}",
+                        f"    Got:      {fp}",
+                    ],
+                )
             else:
                 print("[*] Certificate pinning successful")
 
@@ -212,4 +269,10 @@ def main():
             pass
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        print("\n[Client] ❌ Unexpected crash:", file=sys.stderr, flush=True)
+        traceback.print_exc()
+        _interactive_pause()
+        os._exit(1)
