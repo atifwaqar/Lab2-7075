@@ -18,6 +18,8 @@ Notes:
 """
 import os
 import hashlib
+import importlib
+import importlib.util
 from typing import Callable
 
 import deps
@@ -49,6 +51,33 @@ MENU_ITEMS = [
     ("MITM blocked by certificate pinning (insecure client)",
      {"mode": "tls", "keylog": None,  "mitm": True,  "pin": True,  "extras": INSECURE_CLIENT_ARGS}),
 ]
+
+
+def _spki_sha256_for_cert(path: str) -> str:
+    """Compute the SPKI SHA-256 hash for a PEM or DER certificate."""
+    x509 = importlib.import_module("cryptography.x509")
+    serialization = importlib.import_module(
+        "cryptography.hazmat.primitives.serialization"
+    )
+    hashes_mod = importlib.import_module("cryptography.hazmat.primitives.hashes")
+
+    with open(path, "rb") as cert_file:
+        cert_bytes = cert_file.read()
+
+    if cert_bytes.lstrip().startswith(b"-----BEGIN CERTIFICATE"):
+        loader = x509.load_pem_x509_certificate
+    else:
+        loader = x509.load_der_x509_certificate
+
+    cert = loader(cert_bytes)
+    spki = cert.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    digest = hashes_mod.Hash(hashes_mod.SHA256())
+    digest.update(spki)
+    return digest.finalize().hex()
+
 
 # --------------
 # Menu utilities
@@ -162,7 +191,9 @@ def run_selection(sel: int) -> None:
                 raise FileNotFoundError("server.crt is required for the pinning demo but was not found")
 
             with open(server_cert_path, "rb") as cert_file:
-                fingerprint = hashlib.sha256(cert_file.read()).hexdigest()
+                cert_bytes = cert_file.read()
+
+            fingerprint = hashlib.sha256(cert_bytes).hexdigest()
 
             print(
                 Fore.YELLOW
@@ -171,7 +202,45 @@ def run_selection(sel: int) -> None:
                 + fingerprint
                 + Style.RESET_ALL
             )
-            print(Fore.YELLOW + "[Pinning] Pass this value to --pin if launching manually." + Style.RESET_ALL)
+
+            spki_fp = None
+            spki_note = None
+            spki_note_color = Fore.YELLOW
+            if importlib.util.find_spec("cryptography") is None:
+                spki_note = "Install 'cryptography' to compute SPKI hashes for --pin-spki."
+            else:
+                try:
+                    spki_fp = _spki_sha256_for_cert(server_cert_path)
+                except Exception as exc:  # pragma: no cover - defensive guardrail
+                    spki_note = f"Unable to compute SPKI hash: {exc}"
+                    spki_note_color = Fore.RED
+
+            if spki_fp:
+                print(
+                    Fore.YELLOW
+                    + "[Pinning] server.crt SPKI SHA-256: "
+                    + Fore.LIGHTGREEN_EX
+                    + spki_fp
+                    + Style.RESET_ALL
+                )
+                print(
+                    Fore.YELLOW
+                    + "[Pinning] Use --pin for the cert fingerprint or --pin-spki for the SPKI hash when launching manually."
+                    + Style.RESET_ALL
+                )
+            else:
+                if spki_note:
+                    print(
+                        spki_note_color
+                        + "[Pinning] "
+                        + spki_note
+                        + Style.RESET_ALL
+                    )
+                print(
+                    Fore.YELLOW
+                    + "[Pinning] Pass this fingerprint to --pin if launching manually."
+                    + Style.RESET_ALL
+                )
 
             start_mitm_chat(pin=fingerprint)
         else:
