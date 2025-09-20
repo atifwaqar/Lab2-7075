@@ -147,6 +147,11 @@ def main():
     sock.settimeout(0.2)  # allow quick exit on Ctrl+C/Q
     if use_tls:
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        # Prefer TLS1.3 for lab captures; fallback to TLS1.2 if unavailable.
+        try:
+            context.minimum_version = ssl.TLSVersion.TLSv1_3
+        except AttributeError:
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
 
         if args.insecure:
             print("[Client] ⚠️ Certificate verification disabled (--insecure).")
