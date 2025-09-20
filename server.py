@@ -26,6 +26,7 @@ def _is_socket_closed_oserror(e: OSError) -> bool:
 def handle_client(conn, addr, use_tls, args, context):
     """Handle a single client connection in its own thread."""
     ui_alive = threading.Event()
+    ui_ready = threading.Event()
     conn_io = None
 
     try:
@@ -50,7 +51,12 @@ def handle_client(conn, addr, use_tls, args, context):
             title,
             send_callback=lambda m: conn_io.sendall(m.encode("utf-8"))
         )
-        ui_alive.set()
+
+        def _mark_ui_ready():
+            ui_alive.set()
+            ui_ready.set()
+
+        app.pre_run_callables.append(_mark_ui_ready)
 
         app.pre_run_callables.append(
             lambda: app.append_system(f"[client connected from {addr[0]}:{addr[1]}]")
@@ -61,12 +67,27 @@ def handle_client(conn, addr, use_tls, args, context):
             )
 
         def rx():
+            if not ui_ready.wait(timeout=5):
+                print(f"[Server] UI failed to become ready for {addr}, stopping rx thread")
+                return
             try:
                 while not stop_event.is_set():
                     try:
                         data = conn_io.recv(1024)
                     except OSError as e:
-                        if _is_socket_closed_oserror(e):
+                        if _is_socket_closed_oserror(e) or getattr(e, "winerror", None) == 10054:
+                            if ui_alive.is_set():
+                                app.append_system("[connection reset by peer - client likely closed the connection]")
+                            else:
+                                print("[Server] connection reset by peer - client likely closed the connection")
+                            break
+                        raise
+                    except ssl.SSLError as e:
+                        if getattr(e, "errno", None) in {getattr(ssl, "SSL_ERROR_ZERO_RETURN", None), getattr(ssl, "SSL_ERROR_EOF", None)}:
+                            if ui_alive.is_set():
+                                app.append_system("[TLS connection closed by peer]")
+                            else:
+                                print("[Server] TLS connection closed by peer")
                             break
                         raise
                     if not data:
@@ -77,10 +98,15 @@ def handle_client(conn, addr, use_tls, args, context):
                     if ui_alive.is_set():
                         app.append_peer(msg)
             except Exception as e:
+                friendly = None
+                if isinstance(e, ConnectionResetError) or getattr(e, "winerror", None) == 10054:
+                    friendly = "[connection reset by peer - client likely closed the connection]"
+                elif isinstance(e, ssl.SSLError):
+                    friendly = f"[TLS receive error from {addr}: {e}]"
                 if ui_alive.is_set():
-                    app.append_system(f"[receive error from {addr}: {e}]")
+                    app.append_system(friendly or f"[receive error from {addr}: {e}]")
                 else:
-                    print(f"[Server] receive error from {addr}: {e}")
+                    print(friendly or f"[Server] receive error from {addr}: {e}")
             finally:
                 try:
                     conn_io.close()
