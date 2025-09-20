@@ -2,6 +2,7 @@
 import socket
 import ssl
 import hashlib
+import hmac
 import threading
 import argparse
 import config
@@ -113,6 +114,10 @@ STOP = threading.Event()
 def sha256_fingerprint(cert_bytes: bytes) -> str:
     return hashlib.sha256(cert_bytes).hexdigest()
 
+
+def _norm_fp(s: str) -> str:
+    return s.replace(":", "").strip().lower()
+
 # -------------------- networking --------------------
 def main():
     install_graceful_crash_handler()
@@ -212,8 +217,8 @@ def main():
         print(f"[*] Server certificate fingerprint: {fp}")
 
         if args.pin:
-            expected_fp = args.pin.lower()
-            if fp != expected_fp:
+            expected_fp = _norm_fp(args.pin)
+            if not hmac.compare_digest(_norm_fp(fp), expected_fp):
                 ssock.close()
                 graceful_exit(
                     1,
