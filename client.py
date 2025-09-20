@@ -5,6 +5,8 @@ import hashlib
 import hmac
 import threading
 import argparse
+import importlib
+import importlib.util
 import config
 
 from chatui import create_chat_app  # << new
@@ -118,6 +120,30 @@ def sha256_fingerprint(cert_bytes: bytes) -> str:
 def _norm_fp(s: str) -> str:
     return s.replace(":", "").strip().lower()
 
+
+def spki_sha256_from_der(der_bytes: bytes) -> str:
+    """Return the SHA-256 hash of the certificate's SPKI in lowercase hex."""
+    if importlib.util.find_spec("cryptography") is None:
+        raise ModuleNotFoundError(
+            "The 'cryptography' package is required for --pin-spki. "
+            "Install it with 'python -m pip install cryptography'."
+        )
+
+    x509 = importlib.import_module("cryptography.x509")
+    serialization = importlib.import_module(
+        "cryptography.hazmat.primitives.serialization"
+    )
+    hashes_mod = importlib.import_module("cryptography.hazmat.primitives.hashes")
+
+    cert = x509.load_der_x509_certificate(der_bytes)
+    spki = cert.public_key().public_bytes(
+        serialization.Encoding.DER,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    digest = hashes_mod.Hash(hashes_mod.SHA256())
+    digest.update(spki)
+    return digest.finalize().hex()
+
 # -------------------- networking --------------------
 def main():
     install_graceful_crash_handler()
@@ -128,7 +154,15 @@ def main():
     parser.add_argument("--cafile", help="Path to a CA bundle or server certificate for verification", default=None)
     parser.add_argument("--insecure", action="store_true",
                         help="Disable certificate verification (lab/demo mode only)")
-    parser.add_argument("--pin", help="SHA-256 fingerprint of server cert (lowercase hex, no colons)")
+    pin_group = parser.add_mutually_exclusive_group()
+    pin_group.add_argument(
+        "--pin",
+        help="SHA-256 fingerprint of server cert (lowercase hex, no colons)",
+    )
+    pin_group.add_argument(
+        "--pin-spki",
+        help="SHA-256 of server SubjectPublicKeyInfo (lowercase hex, no colons)",
+    )
     parser.add_argument("--snap", action="store_true", help="Snap console to right half on start")  # optional flag
     args = parser.parse_args()
 
@@ -205,7 +239,7 @@ def main():
         except ssl.SSLError as exc:
             sock.close()
             messages = ["[Client] TLS handshake failed."]
-            if args.pin:
+            if args.pin or args.pin_spki:
                 messages.append("[Client] Certificate pinning prevented the connection.")
             messages.append(f"[Client] Details: {exc}")
             graceful_exit(1, messages)
@@ -215,6 +249,37 @@ def main():
         der_cert = ssock.getpeercert(binary_form=True)
         fp = sha256_fingerprint(der_cert)
         print(f"[*] Server certificate fingerprint: {fp}")
+
+        spki_fp = None
+        if args.pin_spki:
+            try:
+                spki_fp = spki_sha256_from_der(der_cert)
+            except (ModuleNotFoundError, ImportError) as exc:
+                ssock.close()
+                graceful_exit(
+                    1,
+                    [
+                        "[!] SPKI pinning requested but unavailable.",
+                        "[!] Install the 'cryptography' package to enable --pin-spki.",
+                        f"    Details: {exc}",
+                    ],
+                )
+            else:
+                print(f"[*] Server SPKI SHA-256: {spki_fp}")
+
+            expected_spki = _norm_fp(args.pin_spki)
+            if not hmac.compare_digest(_norm_fp(spki_fp), expected_spki):
+                ssock.close()
+                graceful_exit(
+                    1,
+                    [
+                        "[!] SPKI certificate pinning FAILED!",
+                        f"    Expected: {expected_spki}",
+                        f"    Got:      {spki_fp}",
+                    ],
+                )
+            else:
+                print("[*] SPKI pinning successful")
 
         if args.pin:
             expected_fp = _norm_fp(args.pin)
@@ -232,6 +297,8 @@ def main():
                 print("[*] Certificate pinning successful")
 
         title = f"TLS Client | Connected | fp: {fp}"
+        if spki_fp:
+            title += f" | spki: {spki_fp}"
         io_sock = ssock
     else:
         title = "Plain Client | Connected (NO TLS)"
