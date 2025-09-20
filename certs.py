@@ -33,7 +33,7 @@ def _write_mitm_openssl_cnf(path):
     extendedKeyUsage = serverAuth
     [ alt_names ]
     DNS.1 = localhost
-    IP.1  = 127.0.0.1
+    IP.1 = 127.0.0.1
     """).strip()
     with open(path, "w", encoding="utf-8") as f:
         f.write(cfg)
@@ -54,7 +54,7 @@ def _write_minimal_openssl_cnf(path):
     extendedKeyUsage = serverAuth
     [ alt_names ]
     DNS.1 = localhost
-    IP.1  = 127.0.0.1
+    IP.1 = 127.0.0.1
     """).strip()
     with open(path, "w", encoding="utf-8") as f:
         f.write(cfg)
