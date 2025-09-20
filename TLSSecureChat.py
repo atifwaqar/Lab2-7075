@@ -1,20 +1,16 @@
 # -*- coding: utf-8 -*-
-"""
-Menu-based launcher for the 5 demos so you don't have to answer Y/N questions.
-Drop-in replacement for TLSSecureChat.py.
+"""Interactive launcher for the TLS Secure Chat lab scenarios.
 
-Demos:
-  1) Plain chat (no TLS)
-  2) TLS chat
-  3) TLS chat + Wireshark key log
-  4) MITM with self‑signed cert (no pinning)
-  5) MITM blocked by certificate pinning
+How to run:
+  1. ``python TLSSecureChat.py``
+  2. Choose a demo from the numbered menu.
+  3. Follow the on-screen instructions (server first, client second).  MITM
+     demos automatically run the proxy and connect the client through it.
 
-Notes:
-- Uses existing helpers in deps, ui, certs, launcher, matrixfx, config.
-- TLS demos now validate certificates. The MITM demos automatically launch the
-  client with ``--insecure`` so you can still explore the vulnerable workflow.
-  Adjust ``INSECURE_CLIENT_ARGS`` below if your client uses a different flag.
+The menu orchestrates five flows that showcase TLS basics, Wireshark key
+logging, and how certificate pinning stops an active MITM.  The heavy lifting
+is delegated to the ``launcher`` helpers while this file focuses on user
+experience and TLS education.
 """
 import os
 import hashlib
@@ -54,7 +50,22 @@ MENU_ITEMS = [
 
 
 def _spki_sha256_for_cert(path: str) -> str:
-    """Compute the SPKI SHA-256 hash for a PEM or DER certificate."""
+    """Return the SPKI SHA-256 hash for a PEM or DER certificate.
+
+    Args:
+      path: Filesystem path to a certificate in PEM or DER format.
+
+    Returns:
+      str: Lowercase hexadecimal SHA-256 digest of the certificate's SPKI.
+
+    Raises:
+      ValueError: If the certificate cannot be parsed by ``cryptography``.
+
+    Security Notes:
+      - SPKI pinning is more resilient than leaf fingerprint pinning when
+        certificates rotate under the same key.  The launcher prints both so
+        students can experiment with each strategy.
+    """
     x509 = importlib.import_module("cryptography.x509")
     serialization = importlib.import_module(
         "cryptography.hazmat.primitives.serialization"
@@ -83,6 +94,22 @@ def _spki_sha256_for_cert(path: str) -> str:
 # Menu utilities
 # --------------
 def print_menu() -> None:
+    """Render the launcher menu with contextual TLS guidance.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - Highlights that TLS demos validate certificates by default so learners
+        remember that ``--insecure`` intentionally downgrades security.
+    """
+
     show_banner()
     warn_missing_tools()
     print(Fore.YELLOW +
@@ -97,6 +124,21 @@ def print_menu() -> None:
 
 
 def read_choice() -> int:
+    """Prompt the user until a valid menu selection is entered.
+
+    Args:
+      None.
+
+    Returns:
+      int: The selected menu option (0 exits).
+
+    Raises:
+      None.
+
+    Security Notes:
+      - None.  Input is limited to menu choices and does not affect TLS logic.
+    """
+
     while True:
         try:
             raw = input(Fore.WHITE + "Enter a number: " + Style.RESET_ALL).strip()
@@ -117,6 +159,23 @@ def read_choice() -> int:
 # -----------------------
 
 def _run_cert_setup(task: Callable[[], None], failure_message: str) -> bool:
+    """Execute a certificate preparation callable and capture failures.
+
+    Args:
+      task: Zero-argument function that generates certificates.
+      failure_message: Message displayed if the callable raises.
+
+    Returns:
+      bool: ``True`` on success, ``False`` if generation failed.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - Ensuring certificates exist up front prevents TLS handshakes from
+        failing mid-demo, which keeps the security story focused.
+    """
+
     try:
         task()
         return True
@@ -133,6 +192,23 @@ def _run_cert_setup(task: Callable[[], None], failure_message: str) -> bool:
 
 
 def _prepare_certificates(mode: str, mitm: bool) -> bool:
+    """Ensure server and/or MITM certificates exist for the scenario.
+
+    Args:
+      mode: Either ``"plain"`` or ``"tls"``.
+      mitm: Whether the MITM proxy will be launched.
+
+    Returns:
+      bool: ``True`` if certificate preparation succeeded.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - MITM demos generate an attacker certificate so students can inspect the
+        resulting TLS handshake and observe how pinning blocks it.
+    """
+
     if mode == "tls":
         if not _run_cert_setup(
             ensure_server_certs,
@@ -152,6 +228,22 @@ def _prepare_certificates(mode: str, mitm: bool) -> bool:
 # Runner
 # -------
 def run_selection(sel: int) -> None:
+    """Launch the selected lab scenario and print prep information.
+
+    Args:
+      sel: 1-based index into ``MENU_ITEMS``.
+
+    Returns:
+      None.
+
+    Raises:
+      FileNotFoundError: If pinning is requested but ``server.crt`` is missing.
+
+    Security Notes:
+      - When pinning is enabled, the function prints both leaf and SPKI hashes
+        to reinforce why pinning thwarts MITM attempts.
+    """
+
     label, opts = MENU_ITEMS[sel - 1]
     mode   = opts["mode"]          # "plain" or "tls"
     keylog = opts["keylog"]        # None or path
@@ -269,6 +361,22 @@ def run_selection(sel: int) -> None:
 
 
 def main() -> None:
+    """Entry point for the launcher, keeping the menu responsive.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - Runs demos in a loop so students can compare secure vs. insecure
+        configurations without restarting Python.
+    """
+
     try:
         while True:
             try:

