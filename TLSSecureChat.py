@@ -173,7 +173,25 @@ def run_selection(sel: int) -> None:
         keylog_path = os.path.abspath(keylog)
         open(keylog_path, "a", encoding="utf-8").close()
         print(Fore.YELLOW + f"TLS key logging ENABLED: {keylog_path}")
-        print(Fore.YELLOW + "Wireshark → Preferences → Protocols → TLS → Pre-Master-Secret log filename\n")
+        print(
+            Fore.YELLOW
+            + "Wireshark → Preferences → Protocols → TLS → Pre-Master-Secret log filename"
+        )
+        print(
+            Fore.YELLOW
+            + f"Open a capture in Wireshark; set TLS → (Pre)-Master-Secret log file to: {keylog_path}"
+        )
+        print(Fore.YELLOW + "Wireshark filter example: tcp.port == 12345")
+        print(
+            Fore.YELLOW
+            + "openssl s_client -connect 127.0.0.1:12345 -servername localhost -tls1_3 -showcerts"
+        )
+        print(
+            Fore.YELLOW
+            + "To view session details: openssl s_client -connect 127.0.0.1:12345 -servername "
+            "localhost -tls1_3 -msg -state"
+        )
+        print()
 
     # Dramatic flair ✨
     print()
