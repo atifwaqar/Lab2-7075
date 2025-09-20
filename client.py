@@ -1,4 +1,12 @@
 ﻿# -*- coding: utf-8 -*-
+"""TLS chat client demonstrating certificate validation and pinning.
+
+The client connects to the lab server (or MITM proxy), performs a TLS handshake
+when requested, and renders messages through the shared terminal UI.  The
+command-line flags expose toggles for intentionally insecure behavior so
+students can witness the consequences of disabling certificate checks.
+"""
+
 import socket
 import ssl
 import hashlib
@@ -20,8 +28,22 @@ import sys, os, time, traceback
 from typing import Iterable
 
 # ---- Demo-5 friendly pause helpers ----
-def _interactive_pause(seconds=None, *, show_prompt=True):
-    """Cross-platform pause that defaults to waiting for an explicit key press."""
+def _interactive_pause(seconds: float | None = None, *, show_prompt: bool = True) -> None:
+    """Pause execution so the console window remains visible.
+
+    Args:
+      seconds: Optional timeout before resuming automatically.
+      show_prompt: Whether to print instructions for the user.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - None.  This helper only affects user experience during demos.
+    """
     prompt_close = None
     if show_prompt:
         prompt_close = (
@@ -72,8 +94,23 @@ def _interactive_pause(seconds=None, *, show_prompt=True):
     # Fallback: final sleep (only used when no TTY is available)
     time.sleep(0 if seconds is None else seconds)
 
-def graceful_exit(code=0, message=None, seconds=None):
-    """Print message(s), flush, pause, and exit. Use for all planned exits in Demo 5."""
+def graceful_exit(code: int = 0, message=None, seconds: float | None = None) -> None:
+    """Print a message, optionally pause, then exit the process.
+
+    Args:
+      code: Exit status code.
+      message: String or iterable of strings to display before exiting.
+      seconds: Optional duration to keep the window open.
+
+    Returns:
+      None.
+
+    Raises:
+      SystemExit: Indirectly via ``os._exit`` terminating the interpreter.
+
+    Security Notes:
+      - None.  Intended to keep lab messages visible for students.
+    """
     if message:
         target = sys.stderr if code else sys.stdout
         if isinstance(message, str):
@@ -93,8 +130,21 @@ def graceful_exit(code=0, message=None, seconds=None):
     # Use os._exit to avoid other atexit handlers shortening our pause
     os._exit(code)
 
-def install_graceful_crash_handler(seconds=None):
-    """Catch *any* uncaught exception and hold the window so users can read it."""
+def install_graceful_crash_handler(seconds: float | None = None) -> None:
+    """Install a global excepthook that pauses after unexpected crashes.
+
+    Args:
+      seconds: Optional timeout before closing the window automatically.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - None.  The handler is purely for student ergonomics.
+    """
     def _hook(exc_type, exc, tb):
         print("\n[Client] ❌ Unexpected error:", file=sys.stderr, flush=True)
         traceback.print_exception(exc_type, exc, tb)
@@ -114,15 +164,61 @@ STOP = threading.Event()
 
 # -------------------- TLS helpers --------------------
 def sha256_fingerprint(cert_bytes: bytes) -> str:
+    """Compute a lowercase SHA-256 fingerprint for certificate bytes.
+
+    Args:
+      cert_bytes: DER-encoded certificate bytes.
+
+    Returns:
+      str: Hexadecimal SHA-256 digest.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - Used for certificate pinning; matching fingerprints block impostors.
+    """
+
     return hashlib.sha256(cert_bytes).hexdigest()
 
 
 def _norm_fp(s: str) -> str:
+    """Normalise fingerprint text for constant-time comparisons.
+
+    Args:
+      s: Fingerprint string potentially containing separators or whitespace.
+
+    Returns:
+      str: Normalised lowercase hex string.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - Ensures user-provided pins and computed fingerprints are compared in a
+        stable format before ``hmac.compare_digest`` enforces constant timing.
+    """
+
     return s.replace(":", "").strip().lower()
 
 
 def spki_sha256_from_der(der_bytes: bytes) -> str:
-    """Return the SHA-256 hash of the certificate's SPKI in lowercase hex."""
+    """Return the SHA-256 hash of the certificate's SPKI in lowercase hex.
+
+    Args:
+      der_bytes: DER-encoded certificate bytes.
+
+    Returns:
+      str: Lowercase hexadecimal SHA-256 digest of the SPKI structure.
+
+    Raises:
+      ModuleNotFoundError: If ``cryptography`` is not installed.
+      ImportError: If importing ``cryptography`` submodules fails.
+
+    Security Notes:
+      - SPKI pinning survives leaf certificate rotations that keep the same key
+        pair, illustrating a more flexible pinning strategy.
+    """
     if importlib.util.find_spec("cryptography") is None:
         raise ModuleNotFoundError(
             "The 'cryptography' package is required for --pin-spki. "
@@ -146,6 +242,27 @@ def spki_sha256_from_der(der_bytes: bytes) -> str:
 
 # -------------------- networking --------------------
 def main():
+    """Run the chat client CLI and manage TLS handshake/pinning logic.
+
+    Args:
+      None.  CLI arguments are parsed from ``sys.argv``.
+
+    Returns:
+      None.
+
+    Raises:
+      SystemExit: If fatal errors require terminating the process.
+
+    Security Notes:
+      - Creates an ``ssl.SSLContext`` with certificate/hostname verification
+        enabled by default.  Using ``--insecure`` switches to ``CERT_NONE`` and
+        disables SNI/hostname checks, illustrating why MITM succeeds.
+      - Performs certificate or SPKI pinning after the TLS handshake to block
+        rogue certificates even when the trust store would accept them.
+      - The TLS 1.3 handshake occurs during ``context.wrap_socket``; errors from
+        that call surface validation failures to the UI.
+    """
+
     install_graceful_crash_handler()
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["tls", "plain"], default="tls")
@@ -194,9 +311,15 @@ def main():
 
         if args.insecure:
             print("[Client] ⚠️ Certificate verification disabled (--insecure).")
+            # CERT_NONE removes both certificate chain validation and hostname
+            # matching; this intentionally makes the client trust the MITM's
+            # self-signed certificate during the vulnerable demo.
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
         else:
+            # Default path: rely on the platform trust store plus the lab's
+            # generated certificate so the TLS handshake authenticates the
+            # server before any chat messages flow.
             context.check_hostname = True
             context.verify_mode = ssl.CERT_REQUIRED
 
@@ -225,6 +348,9 @@ def main():
 
         # --- create the TLS socket ---
         try:
+            # The TLS handshake happens within ``wrap_socket``.  On success the
+            # returned object is ready for encrypted I/O; failures surface
+            # certificate or protocol issues to the user.
             ssock = context.wrap_socket(sock, server_hostname="localhost")
         except ssl.SSLCertVerificationError as exc:
             sock.close()
@@ -268,6 +394,8 @@ def main():
                 print(f"[*] Server SPKI SHA-256: {spki_fp}")
 
             expected_spki = _norm_fp(args.pin_spki)
+            # Constant-time comparison defends against timing side-channels when
+            # checking user-provided pins.
             if not hmac.compare_digest(_norm_fp(spki_fp), expected_spki):
                 ssock.close()
                 graceful_exit(
@@ -311,6 +439,21 @@ def main():
 
     # ---- Receiver thread (works for TLS and plain via io_sock) ----
     def rx():
+        """Background thread reading from the socket and updating the UI.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - Receives decrypted plaintext once the TLS layer has completed the
+            handshake, reinforcing that confidentiality hinges on validation.
+        """
         try:
             while not STOP.is_set():
                 try:

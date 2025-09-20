@@ -1,5 +1,13 @@
 ﻿# -*- coding: utf-8 -*-
 import os
+"""TLS chat server showcasing secure defaults and optional downgrades.
+
+The server accepts client connections, optionally wraps them in TLS, and
+forwards messages through the shared chat UI.  It pairs with ``client.py`` to
+illustrate how the TLS handshake, certificate exchange, and potential MITM
+attacks play out.
+"""
+
 import socket
 import ssl
 import sys
@@ -19,12 +27,46 @@ stop_event = threading.Event()
 
 
 def _is_socket_closed_oserror(e: OSError) -> bool:
-    """Return True if OSError is a closed-socket condition (platform specific)."""
+    """Return ``True`` if ``e`` indicates the peer closed the socket.
+
+    Args:
+      e: OSError raised during socket operations.
+
+    Returns:
+      bool: ``True`` when the error maps to a closed socket condition.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - None.  This helper simply prevents noisy stack traces during clean
+        disconnects.
+    """
     return getattr(e, "winerror", None) == 10038 or getattr(e, "errno", None) in (errno.EBADF, errno.ENOTCONN)
 
 
 def handle_client(conn, addr, use_tls, args, context):
-    """Handle a single client connection in its own thread."""
+    """Handle a single client connection in its own thread.
+
+    Args:
+      conn: Accepted socket object.
+      addr: Tuple of client host/port.
+      use_tls: Whether to wrap the connection in TLS.
+      args: Parsed CLI arguments containing TLS options.
+      context: Optional ``ssl.SSLContext`` when ``use_tls`` is ``True``.
+
+    Returns:
+      None.
+
+    Raises:
+      None.  Exceptions are caught and logged.
+
+    Security Notes:
+      - When ``use_tls`` is ``True`` the server loads ``server.crt``/``server.key``
+        beforehand so the TLS handshake authenticates the server.
+      - Hostname validation is not performed server-side; clients are expected
+        to validate using SNI and pinning.
+    """
     ui_alive = threading.Event()
     ui_ready = threading.Event()
     conn_io = None
@@ -32,6 +74,9 @@ def handle_client(conn, addr, use_tls, args, context):
     try:
         if use_tls:
             try:
+                # The TLS handshake with the client takes place here.  Failure
+                # typically means the client rejected the certificate or the
+                # protocol versions did not align.
                 conn_io = context.wrap_socket(conn, server_side=True)
                 print(f"[Server] TLS handshake successful with {addr}")
             except ssl.SSLError as e:
@@ -67,6 +112,23 @@ def handle_client(conn, addr, use_tls, args, context):
             )
 
         def rx():
+            """Receive loop that forwards decrypted messages to the UI.
+
+            Args:
+              None.
+
+            Returns:
+              None.
+
+            Raises:
+              None.
+
+            Security Notes:
+              - When TLS is enabled, ``conn_io`` transparently decrypts bytes,
+                demonstrating that authenticated sessions behave like normal
+                sockets to application code.
+            """
+
             if not ui_ready.wait(timeout=5):
                 print(f"[Server] UI failed to become ready for {addr}, stopping rx thread")
                 return
@@ -142,6 +204,24 @@ def handle_client(conn, addr, use_tls, args, context):
 
 
 def main():
+    """Parse CLI flags, start the TLS server, and accept clients.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      SystemExit: If unrecoverable errors occur during startup.
+
+    Security Notes:
+      - Loads ``server.crt``/``server.key`` into an ``SSLContext`` when TLS is
+        enabled.  Clients authenticate the server via this certificate chain.
+      - The TLS 1.3 minimum enforces modern ciphersuites; environments lacking
+        TLS 1.3 fall back to TLS 1.2 for compatibility.
+    """
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["tls", "plain"], default="tls")
     parser.add_argument("--keylog", help="Path to write TLS key log (for Wireshark decryption)", default=None)
@@ -153,6 +233,9 @@ def main():
 
     context = None
     if use_tls:
+        # ``SSLContext`` configured as a TLS server authenticates clients by
+        # presenting ``server.crt`` during the handshake triggered in
+        # ``handle_client``.
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         # Prefer TLS1.3 for lab captures; fallback to TLS1.2 if unavailable.
         try:

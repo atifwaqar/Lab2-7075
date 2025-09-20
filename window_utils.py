@@ -1,11 +1,30 @@
-import sys, os, time
+"""Helpers for positioning Windows console windows during the demos.
+
+These ergonomics helpers keep the client/server consoles side-by-side.  They do
+not affect TLS logic but make demonstrations easier to follow.
+"""
+
+import os
+import sys
+import time
 
 def snap_console(side: str = "right", width_ratio: float = 0.5, retries: int = 15, delay: float = 0.05) -> None:
-    """
-    Snap the current console/terminal window to the given side of the work area.
-    side: "left" or "right"
-    width_ratio: portion of the work area to occupy (0.1 .. 1.0)
-    Works with classic conhost and Windows Terminal. No-op on non-Windows.
+    """Snap the current console window to one side of the screen.
+
+    Args:
+      side: ``"left"`` or ``"right"`` target position.
+      width_ratio: Portion of the work area to occupy (0.1 .. 1.0).
+      retries: How many times to poll for the window handle.
+      delay: Delay between retries in seconds.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - None.  Only affects demo presentation on Windows.
     """
     if sys.platform != "win32":
         return

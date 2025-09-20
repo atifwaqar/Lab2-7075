@@ -1,16 +1,34 @@
 import os, shutil
-import pyfiglet
-from colorama import Fore
-import emoji
-import sys
+"""User-interface helpers used by the TLS Secure Chat demos.
+
+The functions here provide banner output and simple animations to keep the
+focus on TLS concepts rather than terminal formatting.
+"""
+
 import os
 import shutil
+import sys
 import time
-import sys, time
-from colorama import Fore, Style
+
+import emoji
+import pyfiglet
 from colorama import Fore, Style
 
-def show_banner():
+def show_banner() -> None:
+    """Display the lab banner and recommended tooling.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - None.
+    """
     os.system("cls" if os.name == "nt" else "clear")
     banner = pyfiglet.figlet_format("TLS Secure Chat")
     print(Fore.CYAN + banner)
@@ -25,7 +43,21 @@ def show_banner():
     print(Fore.YELLOW + "-" * 70)
     print()
 
-def warn_missing_tools():
+def warn_missing_tools() -> None:
+    """Warn if optional tooling like OpenSSL or Wireshark is missing.
+
+    Args:
+      None.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - Encourages installing TLS inspection tools but does not change behavior.
+    """
     missing = []
     if shutil.which("openssl") is None:
         missing.append("OpenSSL")
@@ -37,7 +69,23 @@ def warn_missing_tools():
             print(Fore.YELLOW + f"  - {m}")
         print()
 
-def type_out(text, color=Fore.LIGHTGREEN_EX, delay=0.05):
+def type_out(text: str, color: str = Fore.LIGHTGREEN_EX, delay: float = 0.05) -> None:
+    """Type text to the console with a configurable delay between characters.
+
+    Args:
+      text: Text to render.
+      color: Colorama style string for the text.
+      delay: Delay in seconds between characters.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - None.
+    """
     os.system("cls" if os.name == "nt" else "clear")
     for ch in text:
         sys.stdout.write(color + ch + Style.RESET_ALL)

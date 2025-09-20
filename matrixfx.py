@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""
-matrixfx_original.py
-Holds the ORIGINAL Matrix animation code EXACTLY as in TLSSecureChat.py.
-No logic/visual changes—only relocation so it can be imported.
+"""Matrix-style terminal animation used for dramatic flair in the launcher.
+
+The animation is intentionally decoupled from the TLS logic, but we still add
+docstrings for completeness.  No security-critical code lives here; it simply
+displays an effect before the demos start.
 """
 
 import shutil
@@ -34,7 +35,29 @@ FRONT_CLR = "\x1b[38;5;231m"
 TOTAL_CLRS = len(BODY_CLRS)
 
 class Matrix(list):
+    """Mutable grid representing the falling characters effect.
+
+    Security Notes:
+      - None.  This class is purely cosmetic and does not interact with TLS.
+    """
+
     def __init__(self, wait: int, glitch_freq: int, drop_freq: int):
+        """Configure animation timing values.
+
+        Args:
+          wait: Base speed of the rain effect.
+          glitch_freq: Probability factor for random glitches.
+          drop_freq: Probability factor for spawning new drops.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         self.rows = 0
         self.cols = 0
         self.wait = 0.06 / (wait / 100)
@@ -42,6 +65,20 @@ class Matrix(list):
         self.drop_freq = 0.1 * (drop_freq / 100)
 
     def __str__(self):
+        """Render the grid as ANSI-colored text ready for printing.
+
+        Args:
+          None.
+
+        Returns:
+          str: Full frame representation.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         text = ""
         for (c, s, l) in sum(self[MAX_LEN:], []):
             if s == STATE_NONE:
@@ -53,14 +90,60 @@ class Matrix(list):
         return text
 
     def get_prompt_size(self):
+        """Return terminal size accounting for safety margin.
+
+        Args:
+          None.
+
+        Returns:
+          tuple[int, int]: Rows and columns for the animation buffer.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         size = shutil.get_terminal_size(fallback=(80, 24))
         return size.lines + MAX_LEN, size.columns
 
     @staticmethod
     def get_random_char():
+        """Return a printable random character for the rain effect.
+
+        Args:
+          None.
+
+        Returns:
+          str: Single printable character.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         return chr(random.randint(32, 126))
 
     def update_cell(self, r, c, *, char=None, state=None, length=None):
+        """Mutate a single cell in the matrix grid.
+
+        Args:
+          r: Row index.
+          c: Column index.
+          char: Optional replacement character.
+          state: Optional new state flag.
+          length: Optional drop length metadata.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         if char is not None:
             self[r][c][0] = char
         if state is not None:
@@ -69,9 +152,37 @@ class Matrix(list):
             self[r][c][2] = length
 
     def fill(self):
+        """Initialise the grid with random characters and empty state.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         self[:] = [[[self.get_random_char(), STATE_NONE, 0] for _ in range(self.cols)] for _ in range(self.rows)]
 
     def apply_glitch(self):
+        """Randomly mutate characters to mimic visual glitches.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         total = self.cols * self.rows * self.glitch_freq
         for _ in range(int(total)):
             c = random.randint(0, self.cols - 1)
@@ -79,6 +190,20 @@ class Matrix(list):
             self.update_cell(r, c, char=self.get_random_char())
 
     def drop_col(self, col):
+        """Shift active rain cells down by one row in a column.
+
+        Args:
+          col: Column index to update.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         for r in reversed(range(self.rows)):
             _, state, length = self[r][col]
             if state == STATE_NONE:
@@ -88,6 +213,22 @@ class Matrix(list):
             self.update_cell(r, col, state=STATE_NONE, length=0)
 
     def add_drop(self, row, col, length):
+        """Introduce a new rain drop of ``length`` cells at ``(row, col)``.
+
+        Args:
+          row: Starting row index.
+          col: Column index.
+          length: Number of cells in the drop.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         for i in reversed(range(length)):
             r = row + (length - i)
             if i == 0:
@@ -97,11 +238,39 @@ class Matrix(list):
                 self.update_cell(r, col, state=STATE_TAIL, length=l)
 
     def screen_check(self):
+        """Resize the matrix if the terminal dimensions change.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         if (p := self.get_prompt_size()) != (self.rows, self.cols):
             self.rows, self.cols = p
             self.fill()
 
     def update(self):
+        """Advance the simulation by one step.
+
+        Args:
+          None.
+
+        Returns:
+          None.
+
+        Raises:
+          None.
+
+        Security Notes:
+          - None.
+        """
         for c in range(self.cols):
             self.drop_col(c)
         total = self.cols * self.rows * self.drop_freq
@@ -112,6 +281,24 @@ class Matrix(list):
             self.add_drop(0, col, length)
 
 def matrix_rain_effect(duration=5, speed=120, glitches=80, frequency=100, message="🐇"):
+    """Run the Matrix intro animation before launching a demo.
+
+    Args:
+      duration: How long to run the animation in seconds.
+      speed: Speed parameter for drop updates.
+      glitches: Frequency parameter for glitches.
+      frequency: Drop spawn frequency parameter.
+      message: Optional text revealed during the animation.
+
+    Returns:
+      None.
+
+    Raises:
+      None.
+
+    Security Notes:
+      - None.  Purely aesthetic.
+    """
     type_out("Follow the white rabbit.", delay=0.06)
     matrix = Matrix(speed, glitches, frequency)
     end = time.time() + duration
