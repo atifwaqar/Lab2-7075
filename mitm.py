@@ -39,6 +39,11 @@ def handle_client(client_tls):
 
         # TLS context for connecting to real server
         server_ctx = ssl.create_default_context()
+        # Prefer TLS1.3 for lab captures; fallback to TLS1.2 if unavailable.
+        try:
+            server_ctx.minimum_version = ssl.TLSVersion.TLSv1_3
+        except AttributeError:
+            server_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         server_ctx.check_hostname = False
         server_ctx.verify_mode = ssl.CERT_NONE
 
@@ -60,6 +65,11 @@ def main():
     args = parser.parse_args()
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    # Prefer TLS1.3 for lab captures; fallback to TLS1.2 if unavailable.
+    try:
+        context.minimum_version = ssl.TLSVersion.TLSv1_3
+    except AttributeError:
+        context.minimum_version = ssl.TLSVersion.TLSv1_2
     ensure_mitm_certs()
     context.load_cert_chain(certfile="mitm.crt", keyfile="mitm.key")
 

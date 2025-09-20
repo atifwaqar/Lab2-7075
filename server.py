@@ -154,6 +154,11 @@ def main():
     context = None
     if use_tls:
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        # Prefer TLS1.3 for lab captures; fallback to TLS1.2 if unavailable.
+        try:
+            context.minimum_version = ssl.TLSVersion.TLSv1_3
+        except AttributeError:
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
         context.load_cert_chain(certfile="server.crt", keyfile="server.key")
         if args.keylog:
             context.keylog_filename = args.keylog
