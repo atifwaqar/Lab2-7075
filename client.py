@@ -404,6 +404,9 @@ def main():
                         "[!] SPKI certificate pinning FAILED!",
                         f"    Expected: {expected_spki}",
                         f"    Got:      {spki_fp}",
+                        "    Certificate pinning makes sure you are talking to the exact server you approved by matching this fingerprint.",
+                        "    Because the fingerprint changed, the client suspects someone may be intercepting traffic (a MITM) or the server was replaced.",
+                        "[Client] To keep your data safe, the connection was closed instead of trusting the unexpected certificate.",
                     ],
                 )
             else:
@@ -419,6 +422,9 @@ def main():
                         "[!] Certificate pinning FAILED!",
                         f"    Expected: {expected_fp}",
                         f"    Got:      {fp}",
+                        "    Certificate pinning ensures this connection only proceeds when the server's certificate fingerprint matches the trusted value you supplied.",
+                        "    The mismatch suggests the certificate changed, which could mean a misconfiguration or that someone is trying to intercept the connection (MITM).",
+                        "[Client] The client closed the connection to prevent sending data to an untrusted server.",
                     ],
                 )
             else:
