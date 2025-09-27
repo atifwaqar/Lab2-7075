@@ -3,8 +3,16 @@ import os
 import sys
 import subprocess
 
-DEFAULT_SERVER_HOST = os.environ.get("TLSCHAT_SERVER_HOST", "10.0.0.1")
+import config
+
+DEFAULT_SERVER_HOST = os.environ.get("TLSCHAT_SERVER_HOST", config.HOST)
+DEFAULT_SERVER_PORT = int(os.environ.get("TLSCHAT_SERVER_PORT", config.PORT_SERVER))
 DEFAULT_MITM_LISTEN_HOST = os.environ.get("TLSCHAT_MITM_LISTEN", "0.0.0.0")
+DEFAULT_MITM_HOST = os.environ.get(
+    "TLSCHAT_MITM_HOST",
+    DEFAULT_MITM_LISTEN_HOST if DEFAULT_MITM_LISTEN_HOST != "0.0.0.0" else DEFAULT_SERVER_HOST,
+)
+DEFAULT_MITM_PORT = int(os.environ.get("TLSCHAT_MITM_PORT", config.PORT_SERVER_MITM))
 
 # Define the demo options
 DEMO_OPTIONS = [
@@ -71,7 +79,16 @@ def launch_script(role, args):
     cmd = [sys.executable, script]
 
     if script == "server.py" or script == "client.py":
-        cmd += ["--mode", args["mode"], "--port", "12345"]
+        cmd += ["--mode", args["mode"]]
+        if script == "client.py":
+            target_host = DEFAULT_SERVER_HOST
+            target_port = DEFAULT_SERVER_PORT
+            if args["mitm"]:
+                target_host = DEFAULT_MITM_HOST
+                target_port = DEFAULT_MITM_PORT
+            cmd += ["--host", str(target_host), "--port", str(target_port)]
+        else:
+            cmd += ["--port", str(DEFAULT_SERVER_PORT)]
         if args["keylog"]:
             cmd += ["--keylog", args["keylog"]]
         if script == "client.py":
@@ -81,7 +98,7 @@ def launch_script(role, args):
     elif script == "mitm.py":
         cmd += [
             "--port",
-            "23456",
+            str(DEFAULT_MITM_PORT),
             "--listen-host",
             os.environ.get("TLSCHAT_MITM_LISTEN", DEFAULT_MITM_LISTEN_HOST),
             "--server-host",
@@ -91,11 +108,18 @@ def launch_script(role, args):
     if script == "mitm.py":
         listen_host = os.environ.get("TLSCHAT_MITM_LISTEN", DEFAULT_MITM_LISTEN_HOST)
         server_host = os.environ.get("TLSCHAT_SERVER_HOST", DEFAULT_SERVER_HOST)
+        client_host = os.environ.get("TLSCHAT_MITM_HOST", DEFAULT_MITM_HOST)
         print(
             "\n[Info] MITM proxy will listen on"
-            f" {listen_host}:23456 and connect to {server_host}:12345."
+            f" {listen_host}:{DEFAULT_MITM_PORT} and connect to {server_host}:{DEFAULT_SERVER_PORT}."
         )
-        print("[Info] Override defaults by setting TLSCHAT_MITM_LISTEN or TLSCHAT_SERVER_HOST.")
+        print(
+            f"[Info] Clients targeting the MITM demos will connect to {client_host}:{DEFAULT_MITM_PORT}."
+        )
+        print(
+            "[Info] Override defaults by setting TLSCHAT_MITM_LISTEN, "
+            "TLSCHAT_SERVER_HOST, TLSCHAT_MITM_HOST, or TLSCHAT_MITM_PORT."
+        )
 
     print(f"\nLaunching: {' '.join(cmd)}\n")
     subprocess.run(cmd)

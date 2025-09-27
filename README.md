@@ -32,6 +32,18 @@ proxy on the attacker node with the node's data-plane IP, for example:
 python mitm.py --listen-host 10.0.0.3 --server-host 10.0.0.1
 ```
 
-When using `launcher_mininet.py`, override the defaults by exporting
-`TLSCHAT_MITM_LISTEN` (proxy listen address) and `TLSCHAT_SERVER_HOST` (real
-server address) before starting the launcher.
+When using `launcher_mininet.py`, export the following environment variables on
+each Mininet host before launching the menu so the helper picks the right
+targets automatically:
+
+- `TLSCHAT_SERVER_HOST` / `TLSCHAT_SERVER_PORT` for the real server used in
+  demos 1–3 (defaults: `config.HOST` and `config.PORT_SERVER`).
+- `TLSCHAT_MITM_HOST` / `TLSCHAT_MITM_PORT` for the MITM endpoint the client
+  should dial during demos 4–5 (defaults: inherits from
+  `TLSCHAT_MITM_LISTEN` or falls back to the server host, and
+  `config.PORT_SERVER_MITM`).
+- `TLSCHAT_MITM_LISTEN` for the interface where the proxy should bind.
+
+The chat client itself now accepts a `--host` flag (defaulting to
+`config.HOST`).  The Mininet launcher will pass the appropriate host and port
+automatically based on the selected demo.
