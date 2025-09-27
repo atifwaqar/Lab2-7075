@@ -85,7 +85,7 @@ def launch_script(role, args):
 def main():
     ui_enabled = check_ui_dependencies()
     if not ui_enabled:
-        print("⚠️  Fancy UI features are disabled (missing dependencies).")
+        print("[WARNING] Fancy UI features are disabled (missing dependencies).")
 
     while True:
         display_main_menu()
