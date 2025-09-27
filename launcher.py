@@ -196,11 +196,21 @@ def start_mitm_chat(pin: str | None = None) -> None:
     wait_for_port(config.HOST, config.PORT_SERVER_REAL)
 
     # 2. Start MITM proxy
+    mitm_listen_host = config.HOST
     subprocess.Popen(
-        [sys.executable, "mitm.py", "--port", str(config.PORT_SERVER_MITM)],
+        [
+            sys.executable,
+            "mitm.py",
+            "--port",
+            str(config.PORT_SERVER_MITM),
+            "--listen-host",
+            mitm_listen_host,
+            "--server-host",
+            config.HOST,
+        ],
         cwd=os.getcwd()
     )
-    wait_for_port(config.HOST, config.PORT_SERVER_MITM)
+    wait_for_port(mitm_listen_host, config.PORT_SERVER_MITM)
 
     # 3. Start client (connects to MITM, with optional pinning)
     start_client_console("tls", None, config.PORT_SERVER_MITM, pin=pin)
