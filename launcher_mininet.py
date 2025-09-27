@@ -3,6 +3,9 @@ import os
 import sys
 import subprocess
 
+DEFAULT_SERVER_HOST = os.environ.get("TLSCHAT_SERVER_HOST", "10.0.0.1")
+DEFAULT_MITM_LISTEN_HOST = os.environ.get("TLSCHAT_MITM_LISTEN", "0.0.0.0")
+
 # Define the demo options
 DEMO_OPTIONS = [
     "Plain chat (no TLS)",
@@ -76,7 +79,23 @@ def launch_script(role, args):
                 cmd += ["--pin", "dummyfingerprint"]
             cmd += list(args["extras"])
     elif script == "mitm.py":
-        cmd += ["--port", "23456"]
+        cmd += [
+            "--port",
+            "23456",
+            "--listen-host",
+            os.environ.get("TLSCHAT_MITM_LISTEN", DEFAULT_MITM_LISTEN_HOST),
+            "--server-host",
+            os.environ.get("TLSCHAT_SERVER_HOST", DEFAULT_SERVER_HOST),
+        ]
+
+    if script == "mitm.py":
+        listen_host = os.environ.get("TLSCHAT_MITM_LISTEN", DEFAULT_MITM_LISTEN_HOST)
+        server_host = os.environ.get("TLSCHAT_SERVER_HOST", DEFAULT_SERVER_HOST)
+        print(
+            "\n[Info] MITM proxy will listen on"
+            f" {listen_host}:23456 and connect to {server_host}:12345."
+        )
+        print("[Info] Override defaults by setting TLSCHAT_MITM_LISTEN or TLSCHAT_SERVER_HOST.")
 
     print(f"\nLaunching: {' '.join(cmd)}\n")
     subprocess.run(cmd)
