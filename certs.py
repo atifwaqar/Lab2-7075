@@ -124,9 +124,11 @@ def _write_minimal_openssl_cnf(path: str) -> None:
       None.
 
     Security Notes:
-      - Generates a leaf certificate valid only for the local host.  Rotating
-        or revoking this certificate requires rerunning the helper; there is
-        no CA or CRL infrastructure involved.
+      - Generates a self-signed certificate that doubles as the trust anchor
+        for the lab client.  The SAN list now covers both ``127.0.0.1`` and the
+        Mininet ``10.0.0.1`` host so TLS validation succeeds on either
+        topology.  Rotating or revoking this certificate requires rerunning the
+        helper; there is no CA or CRL infrastructure involved.
     """
 
     cfg = textwrap.dedent(
@@ -139,23 +141,53 @@ def _write_minimal_openssl_cnf(path: str) -> None:
     [ dn ]
     CN = localhost
     [ v3_req ]
-    subjectAltName = @alt_names
-    basicConstraints = CA:false
-    keyUsage = digitalSignature, keyEncipherment
+    subjectAltName   = @alt_names
+    basicConstraints = critical,CA:true,pathlen:0
+    keyUsage         = critical, digitalSignature, keyEncipherment, keyCertSign
     extendedKeyUsage = serverAuth
     [ alt_names ]
     DNS.1 = localhost
-    IP.1 = 127.0.0.1
+    IP.1  = 127.0.0.1
+    IP.2  = 10.0.0.1
     """
     ).strip()
     with open(path, "w", encoding="utf-8") as f:
         f.write(cfg)
 
+
+def _server_cert_is_compatible(cert_path: str) -> bool:
+    """Check whether the existing server certificate suits the lab demos."""
+
+    if shutil.which("openssl") is None:
+        return True
+    try:
+        output = subprocess.check_output(
+            [
+                "openssl",
+                "x509",
+                "-in",
+                cert_path,
+                "-noout",
+                "-text",
+            ],
+            text=True,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        return False
+
+    required_markers = [
+        "CA:TRUE",
+        "IP Address:127.0.0.1",
+        "IP Address:10.0.0.1",
+    ]
+    return all(marker in output for marker in required_markers)
+
 def ensure_server_certs() -> None:
     """Ensure the TLS chat server certificate/key pair exist on disk.
 
-    Generates ``server.crt``/``server.key`` when missing, using a self-signed
-    certificate restricted to the localhost SAN set.  The client pins against
+    Generates ``server.crt``/``server.key`` when missing, using a
+    self-signed-and-trusted certificate whose SAN entries cover both
+    ``localhost`` and the Mininet control network.  The client pins against
     this certificate in the final lab exercise to illustrate how pinning can
     defeat a MITM even when the client disables normal PKI validation.
 
@@ -174,7 +206,12 @@ def ensure_server_certs() -> None:
         pinning SPKI hashes or using a CA hierarchy.
     """
     if os.path.exists("server.crt") and os.path.exists("server.key"):
-        return
+        if _server_cert_is_compatible("server.crt"):
+            return
+        print(
+            Fore.YELLOW
+            + "Existing server certificate missing Mininet SAN entries or CA flag; regenerating..."
+        )
     if shutil.which("openssl") is None:
         print(Fore.RED + "OpenSSL not found. Install it or generate certs manually.")
         raise SystemExit(1)
