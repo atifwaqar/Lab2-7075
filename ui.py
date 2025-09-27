@@ -30,7 +30,7 @@ def show_banner() -> None:
       - None.
     """
     os.system("cls" if os.name == "nt" else "clear")
-    banner = pyfiglet.figlet_format("TLS Secure Chat")
+    banner = pyfiglet.figlet_format("Lab2 ChatDemo")
     print(Fore.CYAN + banner)
     print(Fore.GREEN + emoji.emojize(":lock: Welcome to the Secure Chat Lab! :closed_lock_with_key:", language="alias"))
     print(Fore.YELLOW + "-" * 70)

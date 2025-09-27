@@ -9,7 +9,7 @@ TLS files can concentrate on certificate validation, pinning, and MITM flows.
 import threading
 import textwrap
 import shutil
-from typing import Callable
+from typing import Callable, List
 
 from prompt_toolkit.application import Application
 from prompt_toolkit.key_binding import KeyBindings
@@ -42,7 +42,7 @@ def _term_width() -> int:
     return max(40, min(120, cols))
 
 
-def _wrap_lines(text: str, max_content: int) -> list[str]:
+def _wrap_lines(text: str, max_content: int) -> List[str]:
     """Wrap a message into bubble-width chunks preserving whitespace.
 
     Args:
@@ -50,7 +50,7 @@ def _wrap_lines(text: str, max_content: int) -> list[str]:
       max_content: Maximum characters per line inside a bubble.
 
     Returns:
-      list[str]: Wrapped lines with whitespace preserved.
+      List[str]: Wrapped lines with whitespace preserved.
 
     Raises:
       None.
@@ -262,3 +262,4 @@ def create_chat_app(title_text: str, send_callback: Callable[[str], None]):
     app.append_peer = _append_peer     # type: ignore[attr-defined]
     app.append_system = _append_sys    # type: ignore[attr-defined]
     return app
+

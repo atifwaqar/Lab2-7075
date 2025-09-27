@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """TLS chat client demonstrating certificate validation and pinning.
 
 The client connects to the lab server (or MITM proxy), performs a TLS handshake
@@ -25,10 +25,10 @@ from window_utils import snap_console
 
 import sys, os, time, traceback
 
-from typing import Iterable
+from typing import Iterable, Optional
 
 # ---- Demo-5 friendly pause helpers ----
-def _interactive_pause(seconds: float | None = None, *, show_prompt: bool = True) -> None:
+def _interactive_pause(seconds: Optional[float] = None, *, show_prompt: bool = True) -> None:
     """Pause execution so the console window remains visible.
 
     Args:
@@ -94,7 +94,7 @@ def _interactive_pause(seconds: float | None = None, *, show_prompt: bool = True
     # Fallback: final sleep (only used when no TTY is available)
     time.sleep(0 if seconds is None else seconds)
 
-def graceful_exit(code: int = 0, message=None, seconds: float | None = None) -> None:
+def graceful_exit(code: int = 0, message=None, seconds: Optional[float] = None) -> None:
     """Print a message, optionally pause, then exit the process.
 
     Args:
@@ -126,11 +126,11 @@ def graceful_exit(code: int = 0, message=None, seconds: float | None = None) -> 
         sys.stderr.flush()
     except Exception:
         pass
-    _interactive_pause(seconds)
+    #_interactive_pause(seconds)
     # Use os._exit to avoid other atexit handlers shortening our pause
     os._exit(code)
 
-def install_graceful_crash_handler(seconds: float | None = None) -> None:
+def install_graceful_crash_handler(seconds: Optional[float] = None) -> None:
     """Install a global excepthook that pauses after unexpected crashes.
 
     Args:
@@ -156,7 +156,7 @@ def install_graceful_crash_handler(seconds: float | None = None) -> None:
                 file=sys.stderr,
                 flush=True,
             )
-        _interactive_pause(seconds, show_prompt=False)
+        #_interactive_pause(seconds, show_prompt=False)
         os._exit(1)
     sys.excepthook = _hook
 
@@ -285,7 +285,7 @@ def main():
 
     snap_console()
 
-    HOST = "127.0.0.1"
+    HOST = "10.0.0.1"
     PORT = args.port
     use_tls = (args.mode == "tls")
 
@@ -500,5 +500,5 @@ if __name__ == "__main__":
     except Exception:
         print("\n[Client] ❌ Unexpected crash:", file=sys.stderr, flush=True)
         traceback.print_exc()
-        _interactive_pause()
+        #_interactive_pause()
         os._exit(1)

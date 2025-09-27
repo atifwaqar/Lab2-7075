@@ -4,7 +4,7 @@ The values defined here keep the server, client, and MITM proxy coordinated.
 Adjust them to move the lab to a different host/port combination.
 """
 
-HOST = "127.0.0.1"
+HOST = "10.0.0.1"
 
 # direct chat (no MITM)
 PORT_SERVER = 12345
