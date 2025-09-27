@@ -27,34 +27,6 @@ import sys, os, time, traceback
 
 from typing import Iterable, Optional
 
-
-def _safe_symbol(preferred: str, fallback: str, *, stream=None) -> str:
-    """Return a printable symbol that respects the stream encoding.
-
-    Some execution environments (including the Mininet VMs used in the lab)
-    configure stdout/stderr with ``latin-1`` encodings.  Printing emojis or
-    other non-ASCII glyphs to such streams raises ``UnicodeEncodeError``
-    exceptions.  To keep the demos resilient we attempt to encode the desired
-    symbol with the target stream's encoding and gracefully fall back to an
-    ASCII label when that fails.
-
-    Args:
-      preferred: The Unicode symbol we would like to display.
-      fallback: ASCII replacement used when ``preferred`` cannot be encoded.
-      stream: Output stream (defaults to ``sys.stdout``).
-
-    Returns:
-      str: Either ``preferred`` (when it is encodable) or ``fallback``.
-    """
-
-    target = stream if stream is not None else sys.stdout
-    encoding = getattr(target, "encoding", None) or "utf-8"
-    try:
-        preferred.encode(encoding)
-        return preferred
-    except (UnicodeEncodeError, LookupError):
-        return fallback
-
 # ---- Demo-5 friendly pause helpers ----
 def _interactive_pause(seconds: Optional[float] = None, *, show_prompt: bool = True) -> None:
     """Pause execution so the console window remains visible.
@@ -174,8 +146,7 @@ def install_graceful_crash_handler(seconds: Optional[float] = None) -> None:
       - None.  The handler is purely for student ergonomics.
     """
     def _hook(exc_type, exc, tb):
-        error_symbol = _safe_symbol("❌", "[ERROR]", stream=sys.stderr)
-        print(f"\n[Client] {error_symbol} Unexpected error:", file=sys.stderr, flush=True)
+        print("\n[Client] ❌ Unexpected error:", file=sys.stderr, flush=True)
         traceback.print_exception(exc_type, exc, tb)
         if seconds is None:
             print("[Client] Press any key to close this window.", file=sys.stderr, flush=True)
@@ -339,8 +310,7 @@ def main():
             context.minimum_version = ssl.TLSVersion.TLSv1_2
 
         if args.insecure:
-            warn_symbol = _safe_symbol("⚠️", "[WARNING]")
-            print(f"[Client] {warn_symbol} Certificate verification disabled (--insecure).")
+            print("[Client] ⚠️ Certificate verification disabled (--insecure).")
             # CERT_NONE removes both certificate chain validation and hostname
             # matching; this intentionally makes the client trust the MITM's
             # self-signed certificate during the vulnerable demo.
@@ -528,9 +498,7 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        error_symbol = _safe_symbol("❌", "[ERROR]", stream=sys.stderr)
-        print(f"\n[Client] {error_symbol} Unexpected crash:", file=sys.stderr, flush=True)
+        print("\n[Client] ❌ Unexpected crash:", file=sys.stderr, flush=True)
         traceback.print_exc()
         #_interactive_pause()
         os._exit(1)
-
