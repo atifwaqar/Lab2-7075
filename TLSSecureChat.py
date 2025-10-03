@@ -13,10 +13,13 @@ is delegated to the ``launcher`` helpers while this file focuses on user
 experience and TLS education.
 """
 import os
+import sys
+import shlex
 import hashlib
 import importlib
 import importlib.util
-from typing import Callable
+import subprocess
+from typing import Callable, List, Optional, Sequence
 
 import deps
 deps.ensure_all()
@@ -25,7 +28,6 @@ from colorama import Fore, Style
 import deps
 from ui import show_banner, warn_missing_tools
 from certs import ensure_server_certs, ensure_mitm_certs
-from launcher import start_chat, start_mitm_chat
 from matrixfx import matrix_rain_effect
 import config
 
@@ -37,6 +39,12 @@ import config
 # Constants
 # ---------
 INSECURE_CLIENT_ARGS = ("--insecure",)
+
+ROLE_LABELS = {
+    "server": "Server",
+    "client": "Client",
+    "mitm": "MITM Proxy",
+}
 
 MENU_ITEMS = [
     ("Plain chat (no TLS)",               {"mode": "plain", "keylog": None,  "mitm": False, "pin": False, "extras": ()}),
@@ -224,6 +232,123 @@ def _prepare_certificates(mode: str, mitm: bool) -> bool:
     return True
 
 
+# -----------------
+# Role coordination
+# -----------------
+
+def _available_roles(mitm: bool) -> List[str]:
+    roles = ["server", "client"]
+    if mitm:
+        roles.append("mitm")
+    return roles
+
+
+def _print_role_menu(roles: Sequence[str]) -> None:
+    print(Fore.CYAN + "Select the role to launch on this node:" + Style.RESET_ALL)
+    for idx, role in enumerate(roles, start=1):
+        print(
+            Fore.WHITE
+            + f"  {idx}. "
+            + Fore.LIGHTGREEN_EX
+            + ROLE_LABELS.get(role, role.title())
+            + Style.RESET_ALL
+        )
+    print(Fore.WHITE + "  0. Back to main menu" + Style.RESET_ALL)
+
+
+def _read_role_choice(roles: Sequence[str]) -> Optional[str]:
+    while True:
+        try:
+            raw = input(Fore.WHITE + "Enter a number: " + Style.RESET_ALL).strip()
+        except EOFError:
+            return None
+        if raw == "":
+            continue
+        if raw == "0":
+            return None
+        try:
+            choice = int(raw)
+        except ValueError:
+            pass
+        else:
+            if 1 <= choice <= len(roles):
+                return roles[choice - 1]
+        print(Fore.RED + "Invalid choice. Please enter a number from the menu." + Style.RESET_ALL)
+
+
+def _prompt_for_role(roles: Sequence[str]) -> Optional[str]:
+    while True:
+        print()
+        _print_role_menu(roles)
+        selection = _read_role_choice(roles)
+        if selection is None:
+            return None
+        return selection
+
+
+def _format_command(cmd: Sequence[str]) -> str:
+    return " ".join(shlex.quote(part) for part in cmd)
+
+
+def _launch_role(
+    role: str,
+    mode: str,
+    keylog_path: Optional[str],
+    extras: Sequence[str],
+    fingerprint: Optional[str],
+    mitm: bool,
+) -> None:
+    if role == "server":
+        script = "server.py"
+        port = config.PORT_SERVER_REAL if mitm else config.PORT_SERVER
+        cmd: List[str] = [
+            sys.executable,
+            script,
+            "--mode",
+            mode,
+            "--port",
+            str(port),
+        ]
+        if keylog_path:
+            cmd += ["--keylog", keylog_path]
+    elif role == "client":
+        script = "client.py"
+        port = config.PORT_SERVER_MITM if mitm else config.PORT_SERVER
+        cmd = [
+            sys.executable,
+            script,
+            "--mode",
+            mode,
+            "--port",
+            str(port),
+        ]
+        if keylog_path:
+            cmd += ["--keylog", keylog_path]
+        if fingerprint:
+            cmd += ["--pin", fingerprint]
+        if extras:
+            cmd += list(extras)
+    elif role == "mitm":
+        script = "mitm.py"
+        port = config.PORT_SERVER_MITM
+        cmd = [sys.executable, script, "--port", str(port)]
+    else:
+        raise ValueError(f"Unknown role: {role}")
+
+    print(
+        Fore.GREEN
+        + "Launching: "
+        + Fore.WHITE
+        + _format_command(cmd)
+        + Style.RESET_ALL
+    )
+
+    try:
+        subprocess.run(cmd, check=False)
+    except FileNotFoundError as exc:
+        print(Fore.RED + f"[error] Failed to start {script}: {exc}" + Style.RESET_ALL)
+
+
 # -------
 # Runner
 # -------
@@ -251,11 +376,7 @@ def run_selection(sel: int) -> None:
     pin    = opts["pin"]           # bool
     extras = tuple(opts.get("extras", ()))
 
-    # Pre-work
-    if extras:
-        os.environ["LAUNCHER_EXTRAS"] = " ".join(extras)
-    else:
-        os.environ.pop("LAUNCHER_EXTRAS", None)
+    keylog_path: Optional[str] = None
 
     if not _prepare_certificates(mode, mitm):
         return
@@ -285,79 +406,78 @@ def run_selection(sel: int) -> None:
         )
         print()
 
+    fingerprint: Optional[str] = None
+
+    if mitm and pin:
+        ensure_server_certs()
+        server_cert_path = os.path.abspath("server.crt")
+        if not os.path.exists(server_cert_path):
+            raise FileNotFoundError("server.crt is required for the pinning demo but was not found")
+
+        with open(server_cert_path, "rb") as cert_file:
+            cert_bytes = cert_file.read()
+
+        fingerprint = hashlib.sha256(cert_bytes).hexdigest()
+
+        print(
+            Fore.YELLOW
+            + "[Pinning] server.crt SHA-256 fingerprint: "
+            + Fore.LIGHTGREEN_EX
+            + fingerprint
+            + Style.RESET_ALL
+        )
+
+        spki_fp = None
+        spki_note = None
+        spki_note_color = Fore.YELLOW
+        if importlib.util.find_spec("cryptography") is None:
+            spki_note = "Install 'cryptography' to compute SPKI hashes for --pin-spki."
+        else:
+            try:
+                spki_fp = _spki_sha256_for_cert(server_cert_path)
+            except Exception as exc:  # pragma: no cover - defensive guardrail
+                spki_note = f"Unable to compute SPKI hash: {exc}"
+                spki_note_color = Fore.RED
+
+        if spki_fp:
+            print(
+                Fore.YELLOW
+                + "[Pinning] server.crt SPKI SHA-256: "
+                + Fore.LIGHTGREEN_EX
+                + spki_fp
+                + Style.RESET_ALL
+            )
+            print(
+                Fore.YELLOW
+                + "[Pinning] Use --pin for the cert fingerprint or --pin-spki for the SPKI hash when launching manually."
+                + Style.RESET_ALL
+            )
+        else:
+            if spki_note:
+                print(
+                    spki_note_color
+                    + "[Pinning] "
+                    + spki_note
+                    + Style.RESET_ALL
+                )
+            print(
+                Fore.YELLOW
+                + "[Pinning] Pass this fingerprint to --pin if launching manually."
+                + Style.RESET_ALL
+            )
+
+    roles = _available_roles(mitm)
+    role_choice = _prompt_for_role(roles)
+    if role_choice is None:
+        print(Fore.CYAN + "Returning to main menu." + Style.RESET_ALL)
+        return
+
     # Dramatic flair ✨
     print()
     print(Fore.GREEN + f"Starting: {label}\n")
     matrix_rain_effect()
 
-    # Launch
-    if mitm:
-        # MITM flow spins up real server, the proxy, then the client connecting to the proxy
-        # For pinning we rely on client to enforce it via an arg understood by client.py
-        if pin:
-            ensure_server_certs()
-            server_cert_path = os.path.abspath("server.crt")
-            if not os.path.exists(server_cert_path):
-                raise FileNotFoundError("server.crt is required for the pinning demo but was not found")
-
-            with open(server_cert_path, "rb") as cert_file:
-                cert_bytes = cert_file.read()
-
-            fingerprint = hashlib.sha256(cert_bytes).hexdigest()
-
-            print(
-                Fore.YELLOW
-                + "[Pinning] server.crt SHA-256 fingerprint: "
-                + Fore.LIGHTGREEN_EX
-                + fingerprint
-                + Style.RESET_ALL
-            )
-
-            spki_fp = None
-            spki_note = None
-            spki_note_color = Fore.YELLOW
-            if importlib.util.find_spec("cryptography") is None:
-                spki_note = "Install 'cryptography' to compute SPKI hashes for --pin-spki."
-            else:
-                try:
-                    spki_fp = _spki_sha256_for_cert(server_cert_path)
-                except Exception as exc:  # pragma: no cover - defensive guardrail
-                    spki_note = f"Unable to compute SPKI hash: {exc}"
-                    spki_note_color = Fore.RED
-
-            if spki_fp:
-                print(
-                    Fore.YELLOW
-                    + "[Pinning] server.crt SPKI SHA-256: "
-                    + Fore.LIGHTGREEN_EX
-                    + spki_fp
-                    + Style.RESET_ALL
-                )
-                print(
-                    Fore.YELLOW
-                    + "[Pinning] Use --pin for the cert fingerprint or --pin-spki for the SPKI hash when launching manually."
-                    + Style.RESET_ALL
-                )
-            else:
-                if spki_note:
-                    print(
-                        spki_note_color
-                        + "[Pinning] "
-                        + spki_note
-                        + Style.RESET_ALL
-                    )
-                print(
-                    Fore.YELLOW
-                    + "[Pinning] Pass this fingerprint to --pin if launching manually."
-                    + Style.RESET_ALL
-                )
-
-            start_mitm_chat(pin=fingerprint)
-        else:
-            start_mitm_chat()
-    else:
-        # Direct server+client chat (plain or TLS)
-        start_chat(mode, os.path.abspath(keylog) if keylog else None, config.PORT_SERVER)
+    _launch_role(role_choice, mode, keylog_path, extras, fingerprint if pin else None, mitm)
 
 
 def main() -> None:
