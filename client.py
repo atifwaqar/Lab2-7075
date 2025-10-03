@@ -295,16 +295,7 @@ def main():
     install_graceful_crash_handler()
     parser = argparse.ArgumentParser()
     parser.add_argument("--mode", choices=["tls", "plain"], default="tls")
-    parser.add_argument(
-        "--host",
-        default=config.HOST,
-        help="Host to connect to (defaults to config.HOST)",
-    )
-    parser.add_argument(
-        "--keylog",
-        help="Path to write TLS key log (for Wireshark decryption)",
-        default=None,
-    )
+    parser.add_argument("--keylog", help="Path to write TLS key log (for Wireshark decryption)", default=None)
     parser.add_argument("--port", type=int, default=config.PORT_SERVER, help="Port to connect/bind to")
     parser.add_argument("--cafile", help="Path to a CA bundle or server certificate for verification", default=None)
     parser.add_argument("--insecure", action="store_true",
@@ -323,7 +314,7 @@ def main():
 
     snap_console()
 
-    HOST = args.host
+    HOST = "10.0.0.1"
     PORT = args.port
     use_tls = (args.mode == "tls")
 
@@ -393,7 +384,7 @@ def main():
             # The TLS handshake happens within ``wrap_socket``.  On success the
             # returned object is ready for encrypted I/O; failures surface
             # certificate or protocol issues to the user.
-            ssock = context.wrap_socket(sock, server_hostname=HOST)
+            ssock = context.wrap_socket(sock, server_hostname="localhost")
         except ssl.SSLCertVerificationError as exc:
             sock.close()
             graceful_exit(
@@ -545,4 +536,3 @@ if __name__ == "__main__":
         traceback.print_exc()
         #_interactive_pause()
         os._exit(1)
-
